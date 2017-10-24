@@ -1,0 +1,11 @@
+[package]
+name = "adrasteia"
+version = "0.1.0"
+authors = ["Michael Spiegel <michael.m.spiegel@gmail.com>"]
+
+[dependencies]
+byteorder = "1.1.0"
+rand = "0.3"
+
+[profile.bench]
+opt-level = 3
