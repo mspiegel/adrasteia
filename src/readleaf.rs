@@ -26,21 +26,21 @@ pub fn serialize_readleaf(wtr: &mut Write, leaf: &ReadLeaf) -> Result<usize> {
     wtr.write_u64::<LittleEndian>(leaf.id)?;
     wtr.write_u64::<LittleEndian>(leaf.epoch)?;
     wtr.write_u64::<LittleEndian>(leaf.size as u64)?;
-    for i in 0..size {
-        let len = leaf.keys[i].len();
+    for key in &leaf.keys {
+        let len = key.len();
         total += len;
         wtr.write_u64::<LittleEndian>(len as u64)?;
     }
-    for i in 0..size {
-        let len = leaf.vals[i].len();
+    for val in &leaf.vals {
+        let len = val.len();
         total += len;
         wtr.write_u64::<LittleEndian>(len as u64)?;
     }
-    for i in 0..size {
-        wtr.write_all(leaf.keys[i])?;
+    for key in &leaf.keys {
+        wtr.write_all(key)?;
     }
-    for i in 0..size {
-        wtr.write_all(leaf.vals[i])?;
+    for val in &leaf.vals {
+        wtr.write_all(val)?;
     }
     Ok(total)
 }
@@ -58,18 +58,18 @@ pub fn deserialize_readleaf(input: &[u8]) -> Result<ReadLeaf> {
 
     let mut offset = (3 * size_of::<u64>() + 2 * size * size_of::<u64>()) as isize;
 
-    for i in 0..size {
+    for key in &mut keys {
         let len = rdr.read_u64::<LittleEndian>()? as usize;
         unsafe {
-            keys[i] = from_raw_parts(input_ptr.offset(offset), len);
+            *key = from_raw_parts(input_ptr.offset(offset), len);
         }
         offset += len as isize;
     }
 
-    for i in 0..size {
+    for val in &mut vals {
         let len = rdr.read_u64::<LittleEndian>()? as usize;
         unsafe {
-            vals[i] = from_raw_parts(input_ptr.offset(offset), len);
+            *val = from_raw_parts(input_ptr.offset(offset), len);
         }
         offset += len as isize;
     }
