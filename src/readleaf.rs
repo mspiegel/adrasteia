@@ -97,7 +97,7 @@ mod tests {
     #[test]
     fn roundtrip_empty_readleaf() {
         let empty: &[u8] = &[];
-        let input = ReadLeaf{
+        let input = ReadLeaf {
             id: 0,
             epoch: 0,
             size: 0,
@@ -123,7 +123,7 @@ mod tests {
     #[test]
     fn roundtrip_nonempty_readleaf() {
         let empty: &[u8] = &[];
-        let input = ReadLeaf{
+        let input = ReadLeaf {
             id: 3,
             epoch: 2,
             size: 1,
@@ -134,7 +134,8 @@ mod tests {
         let mut wtr = vec![];
         let result = serialize_readleaf(&mut wtr, &input);
         assert!(result.is_ok());
-        assert_eq!(5 * size_of::<u64>() + "hello".len() + "world".len(), wtr.len());
+        assert_eq!(5 * size_of::<u64>() + "hello".len() + "world".len(),
+                   wtr.len());
         let output = deserialize_readleaf(&wtr);
         assert!(output.is_ok());
         let output = output.unwrap();
@@ -184,7 +185,7 @@ mod tests {
         b.iter(|| deserialize_readleaf(&wtr))
     }
 
-    fn insert_random_bytes(size : usize, data : &mut Vec<u8>, rng : &mut StdRng) -> Vec<usize> {
+    fn insert_random_bytes(size: usize, data: &mut Vec<u8>, rng: &mut StdRng) -> Vec<usize> {
         let mut lengths = vec![0 as usize; size];
         for i in 0..size {
             let len = rng.gen::<usize>() % 100;
@@ -195,7 +196,12 @@ mod tests {
         lengths
     }
 
-    fn insert_random_arrays(size: usize, offset: isize, ptr: *const u8, data: &mut Vec<&[u8]>, lengths: &Vec<usize>) -> isize {
+    fn insert_random_arrays(size: usize,
+                            offset: isize,
+                            ptr: *const u8,
+                            data: &mut Vec<&[u8]>,
+                            lengths: &Vec<usize>)
+                            -> isize {
         let mut offset = offset;
         for i in 0..size {
             let len = lengths[i];
@@ -207,7 +213,7 @@ mod tests {
         offset
     }
 
-    fn create_random_readleaf(size : usize, data : &mut Vec<u8>) -> ReadLeaf {
+    fn create_random_readleaf(size: usize, data: &mut Vec<u8>) -> ReadLeaf {
         let seed: &[_] = &[1, 2, 3, 4];
         let mut rng: StdRng = SeedableRng::from_seed(seed);
         let id = rng.gen::<u64>();
@@ -226,7 +232,7 @@ mod tests {
         offset = insert_random_arrays(size, offset, data_ptr, &mut keys, &keylen);
         insert_random_arrays(size, offset, data_ptr, &mut vals, &vallen);
 
-        ReadLeaf{
+        ReadLeaf {
             id: id,
             epoch: epoch,
             size: size,
