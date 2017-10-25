@@ -184,6 +184,29 @@ mod tests {
         b.iter(|| deserialize_readleaf(&wtr))
     }
 
+    fn insert_random_bytes(size : usize, data : &mut Vec<u8>, rng : &mut StdRng) -> Vec<usize> {
+        let mut lengths = vec![0 as usize; size];
+        for i in 0..size {
+            let len = rng.gen::<usize>() % 100;
+            let key = rng.gen_ascii_chars().take(len).collect::<String>();
+            data.extend(key.into_bytes());
+            lengths[i] = len;
+        }
+        lengths
+    }
+
+    fn insert_random_arrays(size: usize, offset: isize, ptr: *const u8, data: &mut Vec<&[u8]>, lengths: &Vec<usize>) -> isize {
+        let mut offset = offset;
+        for i in 0..size {
+            let len = lengths[i];
+            unsafe {
+                data[i] = from_raw_parts(ptr.offset(offset), len);
+            }
+            offset += len as isize;
+        }
+        offset
+    }
+
     fn create_random_readleaf(size : usize, data : &mut Vec<u8>) -> ReadLeaf {
         let seed: &[_] = &[1, 2, 3, 4];
         let mut rng: StdRng = SeedableRng::from_seed(seed);
@@ -193,42 +216,15 @@ mod tests {
         let mut offset = 0 as isize;
 
         let empty: &[u8] = &[];
-        let mut keylen = vec![0 as usize; size];
-        let mut vallen = vec![0 as usize; size];
+        let keylen = insert_random_bytes(size, data, &mut rng);
+        let vallen = insert_random_bytes(size, data, &mut rng);
+
         let mut keys = vec![empty; size];
         let mut vals = vec![empty; size];
-
-        for i in 0..size {
-            let len = rng.gen::<usize>() % 100;
-            let key = rng.gen_ascii_chars().take(len).collect::<String>();
-            data.extend(key.into_bytes());
-            keylen[i] = len;
-        }
-
-        for i in 0..size {
-            let len = rng.gen::<usize>() % 100;
-            let val = rng.gen_ascii_chars().take(len).collect::<String>();
-            data.extend(val.into_bytes());
-            vallen[i] = len;
-        }
-
         let data_ptr = data.as_ptr();
 
-        for i in 0..size {
-            let len = keylen[i];
-            unsafe {
-                keys[i] = from_raw_parts(data_ptr.offset(offset), len);
-            }
-            offset += len as isize;
-        }
-
-        for i in 0..size {
-            let len = vallen[i];
-            unsafe {
-                vals[i] = from_raw_parts(data_ptr.offset(offset), len);
-            }
-            offset += len as isize;
-        }
+        offset = insert_random_arrays(size, offset, data_ptr, &mut keys, &keylen);
+        insert_random_arrays(size, offset, data_ptr, &mut vals, &vallen);
 
         ReadLeaf{
             id: id,
