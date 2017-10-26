@@ -20,68 +20,71 @@ pub struct ReadLeaf<'a> {
     vals: Vec<&'a [u8]>,
 }
 
-pub fn serialize_readleaf(wtr: &mut Write, leaf: &ReadLeaf) -> Result<usize> {
-    let size = leaf.size;
-    let mut total = 3 * size_of::<u64>() + 2 * size * size_of::<u64>();
-    wtr.write_u64::<LittleEndian>(leaf.id)?;
-    wtr.write_u64::<LittleEndian>(leaf.epoch)?;
-    wtr.write_u64::<LittleEndian>(leaf.size as u64)?;
-    for key in &leaf.keys {
-        let len = key.len();
-        total += len;
-        wtr.write_u64::<LittleEndian>(len as u64)?;
-    }
-    for val in &leaf.vals {
-        let len = val.len();
-        total += len;
-        wtr.write_u64::<LittleEndian>(len as u64)?;
-    }
-    for key in &leaf.keys {
-        wtr.write_all(key)?;
-    }
-    for val in &leaf.vals {
-        wtr.write_all(val)?;
-    }
-    Ok(total)
-}
+impl<'a> ReadLeaf<'a> {
 
-pub fn deserialize_readleaf(input: &[u8]) -> Result<ReadLeaf> {
-    let input_ptr = input.as_ptr();
-    let mut rdr = Cursor::new(input);
-    let id = rdr.read_u64::<LittleEndian>()?;
-    let epoch = rdr.read_u64::<LittleEndian>()?;
-    let size = rdr.read_u64::<LittleEndian>()? as usize;
-
-    let empty: &[u8] = &[];
-    let mut keys = vec![empty; size];
-    let mut vals = vec![empty; size];
-
-    let mut offset = (3 * size_of::<u64>() + 2 * size * size_of::<u64>()) as isize;
-
-    for key in &mut keys {
-        let len = rdr.read_u64::<LittleEndian>()? as usize;
-        unsafe {
-            *key = from_raw_parts(input_ptr.offset(offset), len);
+    pub fn serialize(&self, wtr: &mut Write) -> Result<usize> {
+        let size = self.size;
+        let mut total = 3 * size_of::<u64>() + 2 * size * size_of::<u64>();
+        wtr.write_u64::<LittleEndian>(self.id)?;
+        wtr.write_u64::<LittleEndian>(self.epoch)?;
+        wtr.write_u64::<LittleEndian>(self.size as u64)?;
+        for key in &self.keys {
+            let len = key.len();
+            total += len;
+            wtr.write_u64::<LittleEndian>(len as u64)?;
         }
-        offset += len as isize;
-    }
-
-    for val in &mut vals {
-        let len = rdr.read_u64::<LittleEndian>()? as usize;
-        unsafe {
-            *val = from_raw_parts(input_ptr.offset(offset), len);
+        for val in &self.vals {
+            let len = val.len();
+            total += len;
+            wtr.write_u64::<LittleEndian>(len as u64)?;
         }
-        offset += len as isize;
+        for key in &self.keys {
+            wtr.write_all(key)?;
+        }
+        for val in &self.vals {
+            wtr.write_all(val)?;
+        }
+        Ok(total)
     }
 
-    Ok(ReadLeaf {
-        id: id,
-        epoch: epoch,
-        size: size,
-        data: input,
-        keys: keys,
-        vals: vals,
-    })
+    pub fn deserialize(input: &[u8]) -> Result<ReadLeaf> {
+        let input_ptr = input.as_ptr();
+        let mut rdr = Cursor::new(input);
+        let id = rdr.read_u64::<LittleEndian>()?;
+        let epoch = rdr.read_u64::<LittleEndian>()?;
+        let size = rdr.read_u64::<LittleEndian>()? as usize;
+
+        let empty: &[u8] = &[];
+        let mut keys = vec![empty; size];
+        let mut vals = vec![empty; size];
+
+        let mut offset = (3 * size_of::<u64>() + 2 * size * size_of::<u64>()) as isize;
+
+        for key in &mut keys {
+            let len = rdr.read_u64::<LittleEndian>()? as usize;
+            unsafe {
+                *key = from_raw_parts(input_ptr.offset(offset), len);
+            }
+            offset += len as isize;
+        }
+
+        for val in &mut vals {
+            let len = rdr.read_u64::<LittleEndian>()? as usize;
+            unsafe {
+                *val = from_raw_parts(input_ptr.offset(offset), len);
+            }
+            offset += len as isize;
+        }
+
+        Ok(ReadLeaf {
+            id: id,
+            epoch: epoch,
+            size: size,
+            data: input,
+            keys: keys,
+            vals: vals,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -106,10 +109,10 @@ mod tests {
             vals: vec![],
         };
         let mut wtr = vec![];
-        let result = serialize_readleaf(&mut wtr, &input);
+        let result = input.serialize(&mut wtr);
         assert!(result.is_ok());
         assert_eq!(3 * size_of::<u64>(), wtr.len());
-        let output = deserialize_readleaf(&wtr);
+        let output = ReadLeaf::deserialize(&wtr);
         assert!(output.is_ok());
         let output = output.unwrap();
         assert_eq!(0, output.id);
@@ -132,11 +135,11 @@ mod tests {
             vals: vec![b"world"],
         };
         let mut wtr = vec![];
-        let result = serialize_readleaf(&mut wtr, &input);
+        let result = input.serialize(&mut wtr);
         assert!(result.is_ok());
         assert_eq!(5 * size_of::<u64>() + "hello".len() + "world".len(),
                    wtr.len());
-        let output = deserialize_readleaf(&wtr);
+        let output = ReadLeaf::deserialize(&wtr);
         assert!(output.is_ok());
         let output = output.unwrap();
         assert_eq!(3, output.id);
@@ -151,9 +154,9 @@ mod tests {
         let mut data = vec![];
         let input = create_random_readleaf(100, &mut data);
         let mut wtr = vec![];
-        let result = serialize_readleaf(&mut wtr, &input);
+        let result = input.serialize(&mut wtr);
         assert!(result.is_ok());
-        let output = deserialize_readleaf(&wtr);
+        let output = ReadLeaf::deserialize(&wtr);
         assert!(output.is_ok());
         let output = output.unwrap();
         assert_eq!(input.id, output.id);
@@ -170,9 +173,9 @@ mod tests {
         let mut data = vec![];
         let input = create_random_readleaf(10, &mut data);
         let mut wtr = vec![];
-        let result = serialize_readleaf(&mut wtr, &input);
+        let result = input.serialize(&mut wtr);
         assert!(result.is_ok());
-        b.iter(|| deserialize_readleaf(&wtr))
+        b.iter(|| ReadLeaf::deserialize(&wtr))
     }
 
     #[bench]
@@ -180,9 +183,9 @@ mod tests {
         let mut data = vec![];
         let input = create_random_readleaf(100, &mut data);
         let mut wtr = vec![];
-        let result = serialize_readleaf(&mut wtr, &input);
+        let result = input.serialize(&mut wtr);
         assert!(result.is_ok());
-        b.iter(|| deserialize_readleaf(&wtr))
+        b.iter(|| ReadLeaf::deserialize(&wtr))
     }
 
     fn insert_random_bytes(size: usize, data: &mut Vec<u8>, rng: &mut StdRng) -> Vec<usize> {
