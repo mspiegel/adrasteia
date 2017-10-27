@@ -10,6 +10,7 @@ pub struct Message<'a> {
 }
 
 impl<'a,'b> Message<'a> {
+
     pub fn create(&self) -> &[u8] {
         match self.op {
             Operation::Assign => self.data.bytes(),

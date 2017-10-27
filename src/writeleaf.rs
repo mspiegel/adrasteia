@@ -1,8 +1,16 @@
+use byteorder::LittleEndian;
+use byteorder::ReadBytesExt;
+use byteorder::WriteBytesExt;
+
 use super::buf::Buf;
-
-use super::omessage::OwnedMessage;
-
+use super::ownmessage::OwnedMessage;
 use super::tree::WriteTree;
+
+use std::mem::size_of;
+
+use std::io::Cursor;
+use std::io::Result;
+use std::io::Write;
 
 use std::slice::from_raw_parts_mut;
 
@@ -16,6 +24,68 @@ pub struct WriteLeaf<'a> {
 }
 
 impl<'a,'b> WriteLeaf<'a> {
+
+    pub fn serialize(&self, wtr: &mut Write) -> Result<usize> {
+        let size = self.keys.len();
+        let mut total = 3 * size_of::<u64>() + 2 * size * size_of::<u64>();
+        wtr.write_u64::<LittleEndian>(self.id)?;
+        wtr.write_u64::<LittleEndian>(self.epoch)?;
+        wtr.write_u64::<LittleEndian>(size as u64)?;
+        for key in &self.keys {
+            let len = key.bytes().len();
+            total += len;
+            wtr.write_u64::<LittleEndian>(len as u64)?;
+        }
+        for val in &self.vals {
+            let len = val.bytes().len();
+            total += len;
+            wtr.write_u64::<LittleEndian>(len as u64)?;
+        }
+        for key in &self.keys {
+            wtr.write_all(key.bytes())?;
+        }
+        for val in &self.vals {
+            wtr.write_all(val.bytes())?;
+        }
+        Ok(total)
+    }
+
+    pub fn deserialize(input: &mut [u8]) -> Result<WriteLeaf> {
+        let input_ptr = input.as_mut_ptr();
+        let mut rdr = Cursor::new(input);
+        let id = rdr.read_u64::<LittleEndian>()?;
+        let epoch = rdr.read_u64::<LittleEndian>()?;
+        let size = rdr.read_u64::<LittleEndian>()? as usize;
+
+        let mut keys = Vec::with_capacity(size);
+        let mut vals = Vec::with_capacity(size);
+
+        let mut offset = (3 * size_of::<u64>() + 2 * size * size_of::<u64>()) as isize;
+
+        for _ in 0..size {
+            let len = rdr.read_u64::<LittleEndian>()? as usize;
+            unsafe {
+                keys.push(Buf::Shared(from_raw_parts_mut(input_ptr.offset(offset), len)));
+            }
+            offset += len as isize;
+        }
+
+        for _ in 0..size {
+            let len = rdr.read_u64::<LittleEndian>()? as usize;
+            unsafe {
+                vals.push(Buf::Shared(from_raw_parts_mut(input_ptr.offset(offset), len)));
+            }
+            offset += len as isize;
+        }
+
+        Ok(WriteLeaf {
+            id: id,
+            epoch: epoch,
+            data: Buf::Shared(rdr.into_inner()),
+            keys: keys,
+            vals: vals,
+        })
+    }
 
     pub fn get(&self, key: &[u8]) -> Option<&[u8]> {
         let loc = self.keys.binary_search_by_key(&key, |buf| buf.bytes());
@@ -104,7 +174,7 @@ impl<'a,'b> WriteLeaf<'a> {
 mod tests {
     use super::*;
 
-    use message::Operation;
+    use operation::Operation;
 
     #[test]
     fn get_writeleaf() {

@@ -7,7 +7,7 @@ extern crate test;
 pub mod buf;
 pub mod operation;
 pub mod message;
-pub mod omessage;
+pub mod ownmessage;
 pub mod readleaf;
 pub mod writeleaf;
 pub mod writeinternal;
