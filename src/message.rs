@@ -1,35 +1,34 @@
+use super::operation::Operation;
+
 use super::buf::Buf;
 
-pub enum Operation {
-    Assign,
-}
-
+#[derive(Debug)]
 pub struct Message<'a> {
     pub op: Operation,
-    pub key: &'a [u8],
-    pub data: &'a [u8],
+    pub key: Buf<'a>,
+    pub data: Buf<'a>,
 }
 
-impl<'a> Message<'a> {
+impl<'a,'b> Message<'a> {
     pub fn create(&self) -> &[u8] {
         match self.op {
-            Operation::Assign => self.data,
+            Operation::Assign => self.data.bytes(),
         }
     }
 
     fn apply_assign(&self, buf : &mut Buf) {
-        if let Buf::Unique(ref mut val) = *buf {
+        if let Buf::Owned(ref mut val) = *buf {
             val.clear();
-            val.extend_from_slice(self.data);
+            val.extend_from_slice(self.data.bytes());
             return;
         }
         if let Buf::Shared(ref mut val) = *buf {
             if val.len() == self.data.len() {
-                val.copy_from_slice(self.data);
+                val.copy_from_slice(self.data.bytes());
                 return;
             }
         }
-        *buf = Buf::Unique(self.data.to_vec());
+        *buf = Buf::Owned(self.data.to_vec());
     }
 
     pub fn apply(&self, buf : &mut Buf) {

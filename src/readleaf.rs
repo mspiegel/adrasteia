@@ -13,7 +13,6 @@ use std::slice::from_raw_parts;
 pub struct ReadLeaf<'a> {
     id: u64,
     epoch: u64,
-    size: usize,
     #[allow(dead_code)]
     data: &'a [u8],
     keys: Vec<&'a [u8]>,
@@ -23,11 +22,11 @@ pub struct ReadLeaf<'a> {
 impl<'a> ReadLeaf<'a> {
 
     pub fn serialize(&self, wtr: &mut Write) -> Result<usize> {
-        let size = self.size;
+        let size = self.keys.len();
         let mut total = 3 * size_of::<u64>() + 2 * size * size_of::<u64>();
         wtr.write_u64::<LittleEndian>(self.id)?;
         wtr.write_u64::<LittleEndian>(self.epoch)?;
-        wtr.write_u64::<LittleEndian>(self.size as u64)?;
+        wtr.write_u64::<LittleEndian>(size as u64)?;
         for key in &self.keys {
             let len = key.len();
             total += len;
@@ -79,7 +78,6 @@ impl<'a> ReadLeaf<'a> {
         Ok(ReadLeaf {
             id: id,
             epoch: epoch,
-            size: size,
             data: input,
             keys: keys,
             vals: vals,
@@ -103,7 +101,6 @@ mod tests {
         let input = ReadLeaf {
             id: 0,
             epoch: 0,
-            size: 0,
             data: empty,
             keys: vec![],
             vals: vec![],
@@ -117,7 +114,6 @@ mod tests {
         let output = output.unwrap();
         assert_eq!(0, output.id);
         assert_eq!(0, output.epoch);
-        assert_eq!(0, output.size);
         assert!(output.data != empty);
         assert_eq!(0, output.keys.len());
         assert_eq!(0, output.vals.len());
@@ -129,7 +125,6 @@ mod tests {
         let input = ReadLeaf {
             id: 3,
             epoch: 2,
-            size: 1,
             data: empty,
             keys: vec![b"hello"],
             vals: vec![b"world"],
@@ -144,7 +139,6 @@ mod tests {
         let output = output.unwrap();
         assert_eq!(3, output.id);
         assert_eq!(2, output.epoch);
-        assert_eq!(1, output.size);
         assert_eq!(b"hello", output.keys[0]);
         assert_eq!(b"world", output.vals[0]);
     }
@@ -161,7 +155,6 @@ mod tests {
         let output = output.unwrap();
         assert_eq!(input.id, output.id);
         assert_eq!(output.epoch, output.epoch);
-        assert_eq!(100, output.size);
         for i in 0..100 {
             assert_eq!(input.keys[i], output.keys[i]);
             assert_eq!(input.vals[i], output.vals[i]);
@@ -238,7 +231,6 @@ mod tests {
         ReadLeaf {
             id: id,
             epoch: epoch,
-            size: size,
             data: data,
             keys: keys,
             vals: vals,

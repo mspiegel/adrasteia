@@ -1,6 +1,6 @@
 use super::buf::Buf;
 
-use super::message::Message;
+use super::omessage::OwnedMessage;
 
 use super::tree::WriteTree;
 
@@ -9,7 +9,6 @@ use std::slice::from_raw_parts_mut;
 pub struct WriteLeaf<'a> {
     id: u64,
     epoch: u64,
-    size: usize,
     #[allow(dead_code)]
     data: Buf<'a>,
     keys: Vec<Buf<'a>>,
@@ -30,20 +29,21 @@ impl<'a,'b> WriteLeaf<'a> {
     }
 
     fn split(&mut self, tree : &mut WriteTree) -> WriteLeaf<'b> {
-        let split = self.size / 2;
+        let size = self.keys.len();
+        let split = size / 2;
         let mut total = 0 as usize;
-        for i in split..self.size {
+        for i in split..size {
             total += self.keys[i].bytes().len();
             total += self.vals[i].bytes().len();
         }
 
         let mut sib_data = Vec::with_capacity(total);
-        let mut sib_keys = Vec::with_capacity(self.size - split);
-        let mut sib_vals = Vec::with_capacity(self.size - split);
+        let mut sib_keys = Vec::with_capacity(size - split);
+        let mut sib_vals = Vec::with_capacity(size - split);
         let sib_ptr = sib_data.as_mut_ptr();
         let mut offset = 0 as isize;
 
-        for i in split..self.size {
+        for i in split..size {
             let buf = self.keys[i].bytes();
             let len = buf.len();
             sib_data.extend_from_slice(buf);
@@ -55,7 +55,7 @@ impl<'a,'b> WriteLeaf<'a> {
             offset += len as isize;
         }
 
-        for i in split..self.size {
+        for i in split..size {
             let buf = self.vals[i].bytes();
             let len = buf.len();
             sib_data.extend_from_slice(buf);
@@ -67,35 +67,31 @@ impl<'a,'b> WriteLeaf<'a> {
             offset += len as isize;
         }
 
-        self.size = split;
         self.keys.truncate(split);
         self.vals.truncate(split);
 
         WriteLeaf {
             id: tree.next_id(),
             epoch: tree.epoch,
-            size: self.size - split,
-            data: Buf::Unique(sib_data),
+            data: Buf::Owned(sib_data),
             keys: sib_keys,
             vals: sib_vals,
         }
     }
 
-    pub fn upsert(&mut self, tree : &mut WriteTree, msg : &Message) -> Option<WriteLeaf<'b>> {
-        let loc = self.keys.binary_search_by_key(&msg.key, |buf| buf.bytes());
+    pub fn upsert_owned(&mut self, tree : &mut WriteTree, msg : OwnedMessage) -> Option<WriteLeaf<'b>> {
+        let loc = self.keys.binary_search_by_key(&msg.key.as_slice(), |buf| buf.bytes());
         match loc {
             Ok(pos) => {
                 msg.apply(self.vals.get_mut(pos).unwrap());
             },
             Err(pos) => {
-                let key = msg.key.to_vec();
-                let val = msg.create().to_vec();
-                self.keys.insert(pos, Buf::Unique(key));
-                self.vals.insert(pos, Buf::Unique(val));
-                self.size += 1;
+                let (key, val) = msg.create();
+                self.keys.insert(pos, Buf::Owned(key));
+                self.vals.insert(pos, Buf::Owned(val));
             },
         };
-        if self.size < (tree.max_pivots + tree.max_buffer) {
+        if self.keys.len() < (tree.max_pivots + tree.max_buffer) {
             None
         } else {
             Some(self.split(tree))
@@ -115,8 +111,7 @@ mod tests {
         let input = WriteLeaf {
             id: 0,
             epoch: 0,
-            size: 0,
-            data: Buf::Unique(vec![]),
+            data: Buf::Owned(vec![]),
             keys: vec![],
             vals: vec![],
         };
@@ -124,10 +119,9 @@ mod tests {
         let input = WriteLeaf {
             id: 0,
             epoch: 0,
-            size: 0,
-            data: Buf::Unique(vec![]),
-            keys: vec![Buf::Unique(b"hello".to_vec())],
-            vals: vec![Buf::Unique(b"world".to_vec())],
+            data: Buf::Owned(vec![]),
+            keys: vec![Buf::Owned(b"hello".to_vec())],
+            vals: vec![Buf::Owned(b"world".to_vec())],
         };
         assert_eq!(input.get(b"hello"), Some(&b"world"[..]));
     }
@@ -138,31 +132,30 @@ mod tests {
         let mut input = WriteLeaf{
             id: 0,
             epoch: 0,
-            size: 0,
-            data: Buf::Unique(vec![]),
+            data: Buf::Owned(vec![]),
             keys: vec![],
             vals: vec![],
         };
-        let msg = Message{
+        let msg = OwnedMessage{
             op: Operation::Assign,
-            key: b"hello",
-            data: b"world",
+            key: b"hello".to_vec(),
+            data: b"world".to_vec(),
         };
-        input.upsert(&mut tree, &msg);
+        input.upsert_owned(&mut tree, msg);
         assert_eq!(input.get(b"hello"), Some(&b"world"[..]));
-        let msg = Message{
+        let msg = OwnedMessage{
             op: Operation::Assign,
-            key: b"hello",
-            data: b"hello",
+            key: b"hello".to_vec(),
+            data: b"hello".to_vec(),
         };
-        input.upsert(&mut tree, &msg);
+        input.upsert_owned(&mut tree, msg);
         assert_eq!(input.get(b"hello"), Some(&b"hello"[..]));
-        let msg = Message{
+        let msg = OwnedMessage{
             op: Operation::Assign,
-            key: b"hello",
-            data: b"worlds",
+            key: b"hello".to_vec(),
+            data: b"worlds".to_vec(),
         };
-        input.upsert(&mut tree, &msg);
+        input.upsert_owned(&mut tree, msg);
         assert_eq!(input.get(b"hello"), Some(&b"worlds"[..]));
     }
 
@@ -172,27 +165,26 @@ mod tests {
         let mut input = WriteLeaf{
             id: 0,
             epoch: 0,
-            size: 0,
-            data: Buf::Unique(vec![]),
+            data: Buf::Owned(vec![]),
             keys: vec![],
             vals: vec![],
         };
         {
-            let msg = Message{
+            let msg = OwnedMessage{
                 op: Operation::Assign,
-                key: b"foo",
-                data: b"abc",
+                key: b"foo".to_vec(),
+                data: b"abc".to_vec(),
             };
-            let sibling = input.upsert(&mut tree, &msg);
+            let sibling = input.upsert_owned(&mut tree, msg);
             assert!(sibling.is_none());
         }
         {
-            let msg = Message{
+            let msg = OwnedMessage{
                 op: Operation::Assign,
-                key: b"bar",
-                data: b"xyz",
+                key: b"bar".to_vec(),
+                data: b"xyz".to_vec(),
             };
-            let sibling = input.upsert(&mut tree, &msg);
+            let sibling = input.upsert_owned(&mut tree, msg);
             assert!(sibling.is_some());
             let sibling = sibling.unwrap();
             assert_eq!(sibling.get(b"foo"), Some(&b"abc"[..]));
