@@ -32,7 +32,7 @@ impl<'a> OwnedMessage {
         };
     }
 
-    pub fn to_message(self) -> Message<'a> {
+    pub fn into_message(self) -> Message<'a> {
         Message {
             op: self.op,
             key: Buf::Owned(self.key),

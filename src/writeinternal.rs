@@ -118,18 +118,18 @@ impl<'a, 'b> WriteInternal<'a> {
             buffer.push(msg);
         }
 
-        for i in 0..buf_size {
+        for buf in &mut buffer {
             let len = rdr.read_u64::<LittleEndian>()? as usize;
             unsafe {
-                buffer[i].key = Buf::Shared(from_raw_parts_mut(input_ptr.offset(offset), len));
+                buf.key = Buf::Shared(from_raw_parts_mut(input_ptr.offset(offset), len));
             }
             offset += len as isize;
         }
 
-        for i in 0..buf_size {
+        for buf in &mut buffer {
             let len = rdr.read_u64::<LittleEndian>()? as usize;
             unsafe {
-                buffer[i].data = Buf::Shared(from_raw_parts_mut(input_ptr.offset(offset), len));
+                buf.data = Buf::Shared(from_raw_parts_mut(input_ptr.offset(offset), len));
             }
             offset += len as isize;
         }
@@ -149,7 +149,7 @@ impl<'a, 'b> WriteInternal<'a> {
         tree: &mut WriteTree,
         msg: OwnedMessage,
     ) -> Option<WriteInternal<'b>> {
-        self.buffer.push(msg.to_message());
+        self.buffer.push(msg.into_message());
         if self.children.len() < tree.max_buffer {
             return None;
         }

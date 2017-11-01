@@ -12,6 +12,13 @@ impl<'a, 'b> Buf<'a> {
         }
     }
 
+    pub fn is_empty(&self) -> bool {
+        match *self {
+            Buf::Shared(ref val) => val.is_empty(),
+            Buf::Owned(ref val) => val.is_empty(),
+        }
+    }
+
     pub fn to_vec(&self) -> Vec<u8> {
         match *self {
             Buf::Shared(ref val) => val.to_vec(),
@@ -21,8 +28,8 @@ impl<'a, 'b> Buf<'a> {
 
     pub fn bytes(&self) -> &[u8] {
         match *self {
-            Buf::Shared(ref val) => &val,
-            Buf::Owned(ref val) => &&val,
+            Buf::Shared(ref val) => val,
+            Buf::Owned(ref val) => val,
         }
     }
 }

@@ -92,7 +92,7 @@ impl<'a, 'b> WriteLeaf<'a> {
         let loc = self.keys.binary_search_by_key(&key, |buf| buf.bytes());
         match loc {
             Ok(pos) => {
-                let buf = self.vals.get(pos).unwrap();
+                let buf = &self.vals[pos];
                 Some(buf.bytes())
             }
             Err(_) => None,
@@ -161,7 +161,7 @@ impl<'a, 'b> WriteLeaf<'a> {
         );
         match loc {
             Ok(pos) => {
-                msg.apply(self.vals.get_mut(pos).unwrap());
+                msg.apply(&mut self.vals[pos]);
             }
             Err(pos) => {
                 let (key, val) = msg.create();
