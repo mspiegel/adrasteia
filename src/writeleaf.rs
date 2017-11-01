@@ -21,8 +21,7 @@ pub struct WriteLeaf<'a> {
     vals: Vec<Buf<'a>>,
 }
 
-impl<'a,'b> WriteLeaf<'a> {
-
+impl<'a, 'b> WriteLeaf<'a> {
     pub fn serialize(&self, wtr: &mut Write) -> Result<usize> {
         let size = self.keys.len();
         let mut total = 3 * size_of::<u64>() + 2 * size * size_of::<u64>();
@@ -63,7 +62,9 @@ impl<'a,'b> WriteLeaf<'a> {
         for _ in 0..size {
             let len = rdr.read_u64::<LittleEndian>()? as usize;
             unsafe {
-                keys.push(Buf::Shared(from_raw_parts_mut(input_ptr.offset(offset), len)));
+                keys.push(Buf::Shared(
+                    from_raw_parts_mut(input_ptr.offset(offset), len),
+                ));
             }
             offset += len as isize;
         }
@@ -71,7 +72,9 @@ impl<'a,'b> WriteLeaf<'a> {
         for _ in 0..size {
             let len = rdr.read_u64::<LittleEndian>()? as usize;
             unsafe {
-                vals.push(Buf::Shared(from_raw_parts_mut(input_ptr.offset(offset), len)));
+                vals.push(Buf::Shared(
+                    from_raw_parts_mut(input_ptr.offset(offset), len),
+                ));
             }
             offset += len as isize;
         }
@@ -96,7 +99,7 @@ impl<'a,'b> WriteLeaf<'a> {
         }
     }
 
-    fn split(&mut self, tree : &mut WriteTree) -> WriteLeaf<'b> {
+    fn split(&mut self, tree: &mut WriteTree) -> WriteLeaf<'b> {
         let size = self.keys.len();
         let split = size / 2;
         let mut total = 0 as usize;
@@ -147,17 +150,24 @@ impl<'a,'b> WriteLeaf<'a> {
         }
     }
 
-    pub fn upsert_owned(&mut self, tree : &mut WriteTree, msg : OwnedMessage) -> Option<WriteLeaf<'b>> {
-        let loc = self.keys.binary_search_by_key(&msg.key.as_slice(), |buf| buf.bytes());
+    pub fn upsert_owned(
+        &mut self,
+        tree: &mut WriteTree,
+        msg: OwnedMessage,
+    ) -> Option<WriteLeaf<'b>> {
+        let loc = self.keys.binary_search_by_key(
+            &msg.key.as_slice(),
+            |buf| buf.bytes(),
+        );
         match loc {
             Ok(pos) => {
                 msg.apply(self.vals.get_mut(pos).unwrap());
-            },
+            }
             Err(pos) => {
                 let (key, val) = msg.create();
                 self.keys.insert(pos, Buf::Owned(key));
                 self.vals.insert(pos, Buf::Owned(val));
-            },
+            }
         };
         if self.keys.len() < (tree.max_pivots + tree.max_buffer) {
             None
@@ -165,7 +175,6 @@ impl<'a,'b> WriteLeaf<'a> {
             Some(self.split(tree))
         }
     }
-
 }
 
 #[cfg(test)]
@@ -197,28 +206,28 @@ mod tests {
     #[test]
     fn upsert_writeleaf() {
         let mut tree = WriteTree::new(4, 16);
-        let mut input = WriteLeaf{
+        let mut input = WriteLeaf {
             id: 0,
             epoch: 0,
             data: Buf::Owned(vec![]),
             keys: vec![],
             vals: vec![],
         };
-        let msg = OwnedMessage{
+        let msg = OwnedMessage {
             op: Operation::Assign,
             key: b"hello".to_vec(),
             data: b"world".to_vec(),
         };
         input.upsert_owned(&mut tree, msg);
         assert_eq!(input.get(b"hello"), Some(&b"world"[..]));
-        let msg = OwnedMessage{
+        let msg = OwnedMessage {
             op: Operation::Assign,
             key: b"hello".to_vec(),
             data: b"hello".to_vec(),
         };
         input.upsert_owned(&mut tree, msg);
         assert_eq!(input.get(b"hello"), Some(&b"hello"[..]));
-        let msg = OwnedMessage{
+        let msg = OwnedMessage {
             op: Operation::Assign,
             key: b"hello".to_vec(),
             data: b"worlds".to_vec(),
@@ -230,7 +239,7 @@ mod tests {
     #[test]
     fn split_writeleaf() {
         let mut tree = WriteTree::new(1, 1);
-        let mut input = WriteLeaf{
+        let mut input = WriteLeaf {
             id: 0,
             epoch: 0,
             data: Buf::Owned(vec![]),
@@ -238,7 +247,7 @@ mod tests {
             vals: vec![],
         };
         {
-            let msg = OwnedMessage{
+            let msg = OwnedMessage {
                 op: Operation::Assign,
                 key: b"foo".to_vec(),
                 data: b"abc".to_vec(),
@@ -247,7 +256,7 @@ mod tests {
             assert!(sibling.is_none());
         }
         {
-            let msg = OwnedMessage{
+            let msg = OwnedMessage {
                 op: Operation::Assign,
                 key: b"bar".to_vec(),
                 data: b"xyz".to_vec(),

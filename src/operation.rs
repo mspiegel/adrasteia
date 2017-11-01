@@ -1,5 +1,5 @@
 
-#[derive(Debug,Copy,Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum Operation {
     Assign,
 }

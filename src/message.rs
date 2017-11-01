@@ -8,15 +8,14 @@ pub struct Message<'a> {
     pub data: Buf<'a>,
 }
 
-impl<'a,'b> Message<'a> {
-
+impl<'a, 'b> Message<'a> {
     pub fn create(&self) -> &[u8] {
         match self.op {
             Operation::Assign => self.data.bytes(),
         }
     }
 
-    fn apply_assign(&self, buf : &mut Buf) {
+    fn apply_assign(&self, buf: &mut Buf) {
         if let Buf::Owned(ref mut val) = *buf {
             val.clear();
             val.extend_from_slice(self.data.bytes());
@@ -31,7 +30,7 @@ impl<'a,'b> Message<'a> {
         *buf = Buf::Owned(self.data.to_vec());
     }
 
-    pub fn apply(&self, buf : &mut Buf) {
+    pub fn apply(&self, buf: &mut Buf) {
         match self.op {
             Operation::Assign => self.apply_assign(buf),
         };

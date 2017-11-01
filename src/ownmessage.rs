@@ -12,11 +12,11 @@ pub struct OwnedMessage {
 impl<'a> OwnedMessage {
     pub fn create(self) -> (Vec<u8>, Vec<u8>) {
         match self.op {
-            Operation::Assign => (self.key, self.data)
+            Operation::Assign => (self.key, self.data),
         }
     }
 
-    fn apply_assign(self, buf : &mut Buf) {
+    fn apply_assign(self, buf: &mut Buf) {
         if let Buf::Shared(ref mut val) = *buf {
             if val.len() == self.data.len() {
                 val.copy_from_slice(&self.data);
@@ -26,14 +26,14 @@ impl<'a> OwnedMessage {
         *buf = Buf::Owned(self.data);
     }
 
-    pub fn apply(self, buf : &mut Buf) {
+    pub fn apply(self, buf: &mut Buf) {
         match self.op {
             Operation::Assign => self.apply_assign(buf),
         };
     }
 
     pub fn to_message(self) -> Message<'a> {
-        Message{
+        Message {
             op: self.op,
             key: Buf::Owned(self.key),
             data: Buf::Owned(self.data),

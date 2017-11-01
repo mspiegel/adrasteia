@@ -24,8 +24,7 @@ pub struct WriteInternal<'a> {
     children: Vec<u64>,
 }
 
-impl<'a,'b> WriteInternal<'a> {
-
+impl<'a, 'b> WriteInternal<'a> {
     pub fn serialize(&self, wtr: &mut Write) -> Result<usize> {
         let mut total = 0;
         let key_size = self.keys.len();
@@ -96,10 +95,12 @@ impl<'a,'b> WriteInternal<'a> {
         offset += ((key_size + 1) * size_of::<u64>()) as isize;
         offset += (3 * buf_size * size_of::<u64>()) as isize;
 
-       for _ in 0..key_size {
+        for _ in 0..key_size {
             let len = rdr.read_u64::<LittleEndian>()? as usize;
             unsafe {
-                keys.push(Buf::Shared(from_raw_parts_mut(input_ptr.offset(offset), len)));
+                keys.push(Buf::Shared(
+                    from_raw_parts_mut(input_ptr.offset(offset), len),
+                ));
             }
             offset += len as isize;
         }
@@ -108,14 +109,14 @@ impl<'a,'b> WriteInternal<'a> {
             children.push(rdr.read_u64::<LittleEndian>()?)
         }
 
-       for _ in 0..buf_size {
-           let msg = Message{
-               op: Operation::deserialize(rdr.read_u32::<LittleEndian>()?),
-               key: Buf::Owned(vec![]),
-               data: Buf::Owned(vec![]),
-           };
-           buffer.push(msg);
-       }
+        for _ in 0..buf_size {
+            let msg = Message {
+                op: Operation::deserialize(rdr.read_u32::<LittleEndian>()?),
+                key: Buf::Owned(vec![]),
+                data: Buf::Owned(vec![]),
+            };
+            buffer.push(msg);
+        }
 
         for i in 0..buf_size {
             let len = rdr.read_u64::<LittleEndian>()? as usize;
@@ -143,13 +144,16 @@ impl<'a,'b> WriteInternal<'a> {
         })
     }
 
-    pub fn upsert_owned(&mut self, tree : &mut WriteTree, msg : OwnedMessage) -> Option<WriteInternal<'b>> {
+    pub fn upsert_owned(
+        &mut self,
+        tree: &mut WriteTree,
+        msg: OwnedMessage,
+    ) -> Option<WriteInternal<'b>> {
         self.buffer.push(msg.to_message());
         if self.children.len() < tree.max_buffer {
-            return None
+            return None;
         }
 
         None
     }
-
 }

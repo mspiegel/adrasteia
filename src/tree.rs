@@ -8,7 +8,7 @@ pub struct WriteTree {
 
 impl WriteTree {
     pub fn new(max_pivots: usize, max_buffer: usize) -> WriteTree {
-        WriteTree{
+        WriteTree {
             epoch: 1,
             id: 1,
             max_pivots: max_pivots,

@@ -19,7 +19,6 @@ pub struct ReadLeaf<'a> {
 }
 
 impl<'a> ReadLeaf<'a> {
-
     pub fn serialize(&self, wtr: &mut Write) -> Result<usize> {
         let size = self.keys.len();
         let mut total = 3 * size_of::<u64>() + 2 * size * size_of::<u64>();
@@ -131,8 +130,10 @@ mod tests {
         let mut wtr = vec![];
         let result = input.serialize(&mut wtr);
         assert!(result.is_ok());
-        assert_eq!(5 * size_of::<u64>() + "hello".len() + "world".len(),
-                   wtr.len());
+        assert_eq!(
+            5 * size_of::<u64>() + "hello".len() + "world".len(),
+            wtr.len()
+        );
         let output = ReadLeaf::deserialize(&wtr);
         assert!(output.is_ok());
         let output = output.unwrap();
@@ -191,12 +192,13 @@ mod tests {
         lengths
     }
 
-    fn insert_random_arrays(size: usize,
-                            offset: isize,
-                            ptr: *const u8,
-                            data: &mut Vec<&[u8]>,
-                            lengths: &Vec<usize>)
-                            -> isize {
+    fn insert_random_arrays(
+        size: usize,
+        offset: isize,
+        ptr: *const u8,
+        data: &mut Vec<&[u8]>,
+        lengths: &Vec<usize>,
+    ) -> isize {
         let mut offset = offset;
         for i in 0..size {
             let len = lengths[i];

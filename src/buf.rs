@@ -4,7 +4,7 @@ pub enum Buf<'a> {
     Owned(Vec<u8>),
 }
 
-impl<'a,'b> Buf<'a> {
+impl<'a, 'b> Buf<'a> {
     pub fn len(&self) -> usize {
         match *self {
             Buf::Shared(ref val) => val.len(),
