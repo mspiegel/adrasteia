@@ -1,18 +1,16 @@
-use byteorder::LittleEndian;
-use byteorder::ReadBytesExt;
-use byteorder::WriteBytesExt;
-
 use super::buf::Buf;
 use super::ownmessage::OwnedMessage;
 use super::tree::WriteTree;
 
-use std::mem::size_of;
-
 use std::io::Cursor;
 use std::io::Result;
 use std::io::Write;
-
+use std::mem::size_of;
 use std::slice::from_raw_parts_mut;
+
+use byteorder::LittleEndian;
+use byteorder::ReadBytesExt;
+use byteorder::WriteBytesExt;
 
 pub struct WriteLeaf<'a> {
     id: u64,

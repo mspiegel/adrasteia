@@ -1,14 +1,13 @@
-use byteorder::LittleEndian;
-use byteorder::ReadBytesExt;
-use byteorder::WriteBytesExt;
-
-use std::mem::size_of;
 
 use std::io::Cursor;
 use std::io::Result;
 use std::io::Write;
-
+use std::mem::size_of;
 use std::slice::from_raw_parts;
+
+use byteorder::LittleEndian;
+use byteorder::ReadBytesExt;
+use byteorder::WriteBytesExt;
 
 pub struct ReadLeaf<'a> {
     id: u64,

@@ -1,7 +1,5 @@
 use super::operation::Operation;
-
 use super::buf::Buf;
-
 use super::message::Message;
 
 #[derive(Debug)]
