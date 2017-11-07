@@ -9,7 +9,6 @@ pub struct Message<'a> {
 }
 
 impl<'a, 'b> Message<'a> {
-
     fn apply_assign(&self, buf: &mut Buf) {
         if let Buf::Owned(ref mut val) = *buf {
             val.clear();

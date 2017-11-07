@@ -163,7 +163,7 @@ mod tests {
         b.iter(|| ReadLeaf::deserialize(&wtr))
     }
 
-    fn insert_random_bytes(size: usize, data: &mut Vec<u8>, rng: &mut StdRng) -> Vec<usize> {
+    fn create_bytes(size: usize, data: &mut Vec<u8>, rng: &mut StdRng) -> Vec<usize> {
         let mut lengths = vec![0 as usize; size];
         for i in 0..size {
             let len = rng.gen::<usize>() % 100;
@@ -174,7 +174,7 @@ mod tests {
         lengths
     }
 
-    fn insert_random_arrays(
+    fn create_arrays(
         size: usize,
         offset: isize,
         ptr: *const u8,
@@ -199,15 +199,15 @@ mod tests {
         let mut offset = 0 as isize;
 
         let empty: &[u8] = &[];
-        let keylen = insert_random_bytes(size, data, &mut rng);
-        let vallen = insert_random_bytes(size, data, &mut rng);
+        let keylen = create_bytes(size, data, &mut rng);
+        let vallen = create_bytes(size, data, &mut rng);
 
         let mut keys = vec![empty; size];
         let mut vals = vec![empty; size];
         let data_ptr = data.as_ptr();
 
-        offset = insert_random_arrays(size, offset, data_ptr, &mut keys, &keylen);
-        insert_random_arrays(size, offset, data_ptr, &mut vals, &vallen);
+        offset = create_arrays(size, offset, data_ptr, &mut keys, &keylen);
+        create_arrays(size, offset, data_ptr, &mut vals, &vallen);
 
         ReadLeaf {
             data: data,

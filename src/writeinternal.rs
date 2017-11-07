@@ -136,16 +136,33 @@ impl<'a, 'b> WriteInternal<'a> {
         })
     }
 
-    pub fn upsert_owned(
+    fn upsert(&mut self, msg: OwnedMessage) {
+        self.buffer.push(msg.into_message());
+    }
+
+    pub fn upsert_msgs(
+        &mut self,
+        tree: &mut WriteTree,
+        msgs: Vec<OwnedMessage>,
+    ) -> Option<WriteInternal<'b>> {
+        for msg in msgs {
+            self.upsert(msg);
+        }
+        if self.children.len() < tree.max_buffer {
+            return None;
+        }
+        None
+    }
+
+    pub fn upsert_msg(
         &mut self,
         tree: &mut WriteTree,
         msg: OwnedMessage,
     ) -> Option<WriteInternal<'b>> {
-        self.buffer.push(msg.into_message());
+        self.upsert(msg);
         if self.children.len() < tree.max_buffer {
             return None;
         }
-
         None
     }
 }

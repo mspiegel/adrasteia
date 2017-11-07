@@ -140,11 +140,7 @@ impl<'a, 'b> WriteLeaf<'a> {
         }
     }
 
-    pub fn upsert_owned(
-        &mut self,
-        tree: &mut WriteTree,
-        msg: OwnedMessage,
-    ) -> Option<WriteLeaf<'b>> {
+    pub fn upsert(&mut self, msg: OwnedMessage) {
         let loc = self.keys.binary_search_by_key(
             &msg.key.as_slice(),
             |buf| buf.bytes(),
@@ -159,6 +155,25 @@ impl<'a, 'b> WriteLeaf<'a> {
                 self.vals.insert(pos, Buf::Owned(val));
             }
         };
+    }
+
+    pub fn upsert_msg(&mut self, tree: &mut WriteTree, msg: OwnedMessage) -> Option<WriteLeaf<'b>> {
+        self.upsert(msg);
+        if self.keys.len() < (tree.max_pivots + tree.max_buffer) {
+            None
+        } else {
+            Some(self.split())
+        }
+    }
+
+    pub fn upsert_msgs(
+        &mut self,
+        tree: &mut WriteTree,
+        msgs: Vec<OwnedMessage>,
+    ) -> Option<WriteLeaf<'b>> {
+        for msg in msgs {
+            self.upsert(msg);
+        }
         if self.keys.len() < (tree.max_pivots + tree.max_buffer) {
             None
         } else {
@@ -202,21 +217,21 @@ mod tests {
             key: b"hello".to_vec(),
             data: b"world".to_vec(),
         };
-        input.upsert_owned(&mut tree, msg);
+        input.upsert_msg(&mut tree, msg);
         assert_eq!(input.get(b"hello"), Some(&b"world"[..]));
         let msg = OwnedMessage {
             op: Operation::Assign,
             key: b"hello".to_vec(),
             data: b"hello".to_vec(),
         };
-        input.upsert_owned(&mut tree, msg);
+        input.upsert_msg(&mut tree, msg);
         assert_eq!(input.get(b"hello"), Some(&b"hello"[..]));
         let msg = OwnedMessage {
             op: Operation::Assign,
             key: b"hello".to_vec(),
             data: b"worlds".to_vec(),
         };
-        input.upsert_owned(&mut tree, msg);
+        input.upsert_msg(&mut tree, msg);
         assert_eq!(input.get(b"hello"), Some(&b"worlds"[..]));
     }
 
@@ -234,7 +249,7 @@ mod tests {
                 key: b"foo".to_vec(),
                 data: b"abc".to_vec(),
             };
-            let sibling = input.upsert_owned(&mut tree, msg);
+            let sibling = input.upsert_msg(&mut tree, msg);
             assert!(sibling.is_none());
         }
         {
@@ -243,7 +258,7 @@ mod tests {
                 key: b"bar".to_vec(),
                 data: b"xyz".to_vec(),
             };
-            let sibling = input.upsert_owned(&mut tree, msg);
+            let sibling = input.upsert_msg(&mut tree, msg);
             assert!(sibling.is_some());
             let sibling = sibling.unwrap();
             assert_eq!(sibling.get(b"foo"), Some(&b"abc"[..]));
