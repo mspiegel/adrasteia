@@ -10,8 +10,6 @@ use byteorder::ReadBytesExt;
 use byteorder::WriteBytesExt;
 
 pub struct ReadLeaf<'a> {
-    id: u64,
-    epoch: u64,
     #[allow(dead_code)]
     data: &'a [u8],
     keys: Vec<&'a [u8]>,
@@ -21,9 +19,7 @@ pub struct ReadLeaf<'a> {
 impl<'a> ReadLeaf<'a> {
     pub fn serialize(&self, wtr: &mut Write) -> Result<usize> {
         let size = self.keys.len();
-        let mut total = 3 * size_of::<u64>() + 2 * size * size_of::<u64>();
-        wtr.write_u64::<LittleEndian>(self.id)?;
-        wtr.write_u64::<LittleEndian>(self.epoch)?;
+        let mut total = size_of::<u64>() + 2 * size * size_of::<u64>();
         wtr.write_u64::<LittleEndian>(size as u64)?;
         for key in &self.keys {
             let len = key.len();
@@ -47,15 +43,13 @@ impl<'a> ReadLeaf<'a> {
     pub fn deserialize(input: &[u8]) -> Result<ReadLeaf> {
         let input_ptr = input.as_ptr();
         let mut rdr = Cursor::new(input);
-        let id = rdr.read_u64::<LittleEndian>()?;
-        let epoch = rdr.read_u64::<LittleEndian>()?;
         let size = rdr.read_u64::<LittleEndian>()? as usize;
 
         let empty: &[u8] = &[];
         let mut keys = vec![empty; size];
         let mut vals = vec![empty; size];
 
-        let mut offset = (3 * size_of::<u64>() + 2 * size * size_of::<u64>()) as isize;
+        let mut offset = (size_of::<u64>() + 2 * size * size_of::<u64>()) as isize;
 
         for key in &mut keys {
             let len = rdr.read_u64::<LittleEndian>()? as usize;
@@ -74,8 +68,6 @@ impl<'a> ReadLeaf<'a> {
         }
 
         Ok(ReadLeaf {
-            id: id,
-            epoch: epoch,
             data: input,
             keys: keys,
             vals: vals,
@@ -97,8 +89,6 @@ mod tests {
     fn roundtrip_empty_readleaf() {
         let empty: &[u8] = &[];
         let input = ReadLeaf {
-            id: 0,
-            epoch: 0,
             data: empty,
             keys: vec![],
             vals: vec![],
@@ -106,12 +96,10 @@ mod tests {
         let mut wtr = vec![];
         let result = input.serialize(&mut wtr);
         assert!(result.is_ok());
-        assert_eq!(3 * size_of::<u64>(), wtr.len());
+        assert_eq!(size_of::<u64>(), wtr.len());
         let output = ReadLeaf::deserialize(&wtr);
         assert!(output.is_ok());
         let output = output.unwrap();
-        assert_eq!(0, output.id);
-        assert_eq!(0, output.epoch);
         assert!(output.data != empty);
         assert_eq!(0, output.keys.len());
         assert_eq!(0, output.vals.len());
@@ -121,8 +109,6 @@ mod tests {
     fn roundtrip_nonempty_readleaf() {
         let empty: &[u8] = &[];
         let input = ReadLeaf {
-            id: 3,
-            epoch: 2,
             data: empty,
             keys: vec![b"hello"],
             vals: vec![b"world"],
@@ -131,14 +117,12 @@ mod tests {
         let result = input.serialize(&mut wtr);
         assert!(result.is_ok());
         assert_eq!(
-            5 * size_of::<u64>() + "hello".len() + "world".len(),
+            3 * size_of::<u64>() + "hello".len() + "world".len(),
             wtr.len()
         );
         let output = ReadLeaf::deserialize(&wtr);
         assert!(output.is_ok());
         let output = output.unwrap();
-        assert_eq!(3, output.id);
-        assert_eq!(2, output.epoch);
         assert_eq!(b"hello", output.keys[0]);
         assert_eq!(b"world", output.vals[0]);
     }
@@ -153,8 +137,6 @@ mod tests {
         let output = ReadLeaf::deserialize(&wtr);
         assert!(output.is_ok());
         let output = output.unwrap();
-        assert_eq!(input.id, output.id);
-        assert_eq!(output.epoch, output.epoch);
         for i in 0..100 {
             assert_eq!(input.keys[i], output.keys[i]);
             assert_eq!(input.vals[i], output.vals[i]);
@@ -213,8 +195,6 @@ mod tests {
     fn create_random_readleaf(size: usize, data: &mut Vec<u8>) -> ReadLeaf {
         let seed: &[_] = &[1, 2, 3, 4];
         let mut rng: StdRng = SeedableRng::from_seed(seed);
-        let id = rng.gen::<u64>();
-        let epoch = rng.gen::<u64>();
 
         let mut offset = 0 as isize;
 
@@ -230,8 +210,6 @@ mod tests {
         insert_random_arrays(size, offset, data_ptr, &mut vals, &vallen);
 
         ReadLeaf {
-            id: id,
-            epoch: epoch,
             data: data,
             keys: keys,
             vals: vals,

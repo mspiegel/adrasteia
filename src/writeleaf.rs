@@ -1,5 +1,5 @@
 use super::buf::Buf;
-use super::ownmessage::OwnedMessage;
+use super::message::OwnedMessage;
 use super::tree::WriteTree;
 
 use std::io::Cursor;
@@ -13,8 +13,6 @@ use byteorder::ReadBytesExt;
 use byteorder::WriteBytesExt;
 
 pub struct WriteLeaf<'a> {
-    id: u64,
-    epoch: u64,
     #[allow(dead_code)]
     data: Buf<'a>,
     keys: Vec<Buf<'a>>,
@@ -24,9 +22,7 @@ pub struct WriteLeaf<'a> {
 impl<'a, 'b> WriteLeaf<'a> {
     pub fn serialize(&self, wtr: &mut Write) -> Result<usize> {
         let size = self.keys.len();
-        let mut total = 3 * size_of::<u64>() + 2 * size * size_of::<u64>();
-        wtr.write_u64::<LittleEndian>(self.id)?;
-        wtr.write_u64::<LittleEndian>(self.epoch)?;
+        let mut total = size_of::<u64>() + 2 * size * size_of::<u64>();
         wtr.write_u64::<LittleEndian>(size as u64)?;
         for key in &self.keys {
             let len = key.bytes().len();
@@ -50,14 +46,12 @@ impl<'a, 'b> WriteLeaf<'a> {
     pub fn deserialize(input: &mut [u8]) -> Result<WriteLeaf> {
         let input_ptr = input.as_mut_ptr();
         let mut rdr = Cursor::new(input);
-        let id = rdr.read_u64::<LittleEndian>()?;
-        let epoch = rdr.read_u64::<LittleEndian>()?;
         let size = rdr.read_u64::<LittleEndian>()? as usize;
 
         let mut keys = Vec::with_capacity(size);
         let mut vals = Vec::with_capacity(size);
 
-        let mut offset = (3 * size_of::<u64>() + 2 * size * size_of::<u64>()) as isize;
+        let mut offset = (size_of::<u64>() + 2 * size * size_of::<u64>()) as isize;
 
         for _ in 0..size {
             let len = rdr.read_u64::<LittleEndian>()? as usize;
@@ -80,8 +74,6 @@ impl<'a, 'b> WriteLeaf<'a> {
         }
 
         Ok(WriteLeaf {
-            id: id,
-            epoch: epoch,
             data: Buf::Shared(rdr.into_inner()),
             keys: keys,
             vals: vals,
@@ -99,7 +91,7 @@ impl<'a, 'b> WriteLeaf<'a> {
         }
     }
 
-    fn split(&mut self, tree: &mut WriteTree) -> WriteLeaf<'b> {
+    fn split(&mut self) -> WriteLeaf<'b> {
         let size = self.keys.len();
         let split = size / 2;
         let mut total = 0 as usize;
@@ -142,8 +134,6 @@ impl<'a, 'b> WriteLeaf<'a> {
         self.vals.truncate(split);
 
         WriteLeaf {
-            id: tree.next_id(),
-            epoch: tree.epoch,
             data: Buf::Owned(sib_data),
             keys: sib_keys,
             vals: sib_vals,
@@ -172,7 +162,7 @@ impl<'a, 'b> WriteLeaf<'a> {
         if self.keys.len() < (tree.max_pivots + tree.max_buffer) {
             None
         } else {
-            Some(self.split(tree))
+            Some(self.split())
         }
     }
 }
@@ -186,16 +176,12 @@ mod tests {
     #[test]
     fn get_writeleaf() {
         let input = WriteLeaf {
-            id: 0,
-            epoch: 0,
             data: Buf::Owned(vec![]),
             keys: vec![],
             vals: vec![],
         };
         assert_eq!(input.get(b"hello"), None);
         let input = WriteLeaf {
-            id: 0,
-            epoch: 0,
             data: Buf::Owned(vec![]),
             keys: vec![Buf::Owned(b"hello".to_vec())],
             vals: vec![Buf::Owned(b"world".to_vec())],
@@ -207,8 +193,6 @@ mod tests {
     fn upsert_writeleaf() {
         let mut tree = WriteTree::new(4, 16);
         let mut input = WriteLeaf {
-            id: 0,
-            epoch: 0,
             data: Buf::Owned(vec![]),
             keys: vec![],
             vals: vec![],
@@ -240,8 +224,6 @@ mod tests {
     fn split_writeleaf() {
         let mut tree = WriteTree::new(1, 1);
         let mut input = WriteLeaf {
-            id: 0,
-            epoch: 0,
             data: Buf::Owned(vec![]),
             keys: vec![],
             vals: vec![],

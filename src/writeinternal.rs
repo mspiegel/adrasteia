@@ -1,7 +1,7 @@
 use super::buf::Buf;
 use super::message::Message;
+use super::message::OwnedMessage;
 use super::operation::Operation;
-use super::ownmessage::OwnedMessage;
 use super::tree::WriteTree;
 
 use std::io::Cursor;
@@ -15,8 +15,6 @@ use byteorder::ReadBytesExt;
 use byteorder::WriteBytesExt;
 
 pub struct WriteInternal<'a> {
-    id: u64,
-    epoch: u64,
     #[allow(dead_code)]
     data: Buf<'a>,
     keys: Vec<Buf<'a>>,
@@ -29,11 +27,9 @@ impl<'a, 'b> WriteInternal<'a> {
         let mut total = 0;
         let key_size = self.keys.len();
         let buf_size = self.buffer.len();
-        wtr.write_u64::<LittleEndian>(self.id)?;
-        wtr.write_u64::<LittleEndian>(self.epoch)?;
         wtr.write_u64::<LittleEndian>(key_size as u64)?;
         wtr.write_u64::<LittleEndian>(buf_size as u64)?;
-        total += 4 * size_of::<u64>();
+        total += 2 * size_of::<u64>();
 
         for key in &self.keys {
             let len = key.bytes().len();
@@ -81,8 +77,6 @@ impl<'a, 'b> WriteInternal<'a> {
     pub fn deserialize(input: &mut [u8]) -> Result<WriteInternal> {
         let input_ptr = input.as_mut_ptr();
         let mut rdr = Cursor::new(input);
-        let id = rdr.read_u64::<LittleEndian>()?;
-        let epoch = rdr.read_u64::<LittleEndian>()?;
         let key_size = rdr.read_u64::<LittleEndian>()? as usize;
         let buf_size = rdr.read_u64::<LittleEndian>()? as usize;
 
@@ -90,7 +84,7 @@ impl<'a, 'b> WriteInternal<'a> {
         let mut children = Vec::with_capacity(key_size + 1);
         let mut buffer = Vec::with_capacity(buf_size);
 
-        let mut offset = (4 * size_of::<u64>()) as isize;
+        let mut offset = (2 * size_of::<u64>()) as isize;
         offset += (key_size * size_of::<u64>()) as isize;
         offset += ((key_size + 1) * size_of::<u64>()) as isize;
         offset += (3 * buf_size * size_of::<u64>()) as isize;
@@ -135,8 +129,6 @@ impl<'a, 'b> WriteInternal<'a> {
         }
 
         Ok(WriteInternal {
-            id: id,
-            epoch: epoch,
             data: Buf::Shared(rdr.into_inner()),
             keys: keys,
             buffer: buffer,
