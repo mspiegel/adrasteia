@@ -1,5 +1,5 @@
 use super::buf::Buf;
-use super::message::OwnedMessage;
+use super::message::Message;
 use super::tree::WriteTree;
 
 use std::io::Cursor;
@@ -140,7 +140,7 @@ impl<'a, 'b> WriteLeaf<'a> {
         }
     }
 
-    pub fn upsert(&mut self, msg: OwnedMessage) {
+    pub fn upsert(&mut self, msg: Message) {
         let loc = self.keys.binary_search_by_key(
             &msg.key.as_slice(),
             |buf| buf.bytes(),
@@ -157,7 +157,7 @@ impl<'a, 'b> WriteLeaf<'a> {
         };
     }
 
-    pub fn upsert_msg(&mut self, tree: &mut WriteTree, msg: OwnedMessage) -> Option<WriteLeaf<'b>> {
+    pub fn upsert_msg(&mut self, tree: &mut WriteTree, msg: Message) -> Option<WriteLeaf<'b>> {
         self.upsert(msg);
         if self.keys.len() < (tree.max_pivots + tree.max_buffer) {
             None
@@ -169,7 +169,7 @@ impl<'a, 'b> WriteLeaf<'a> {
     pub fn upsert_msgs(
         &mut self,
         tree: &mut WriteTree,
-        msgs: Vec<OwnedMessage>,
+        msgs: Vec<Message>,
     ) -> Option<WriteLeaf<'b>> {
         for msg in msgs {
             self.upsert(msg);
@@ -212,21 +212,21 @@ mod tests {
             keys: vec![],
             vals: vec![],
         };
-        let msg = OwnedMessage {
+        let msg = Message {
             op: Operation::Assign,
             key: b"hello".to_vec(),
             data: b"world".to_vec(),
         };
         input.upsert_msg(&mut tree, msg);
         assert_eq!(input.get(b"hello"), Some(&b"world"[..]));
-        let msg = OwnedMessage {
+        let msg = Message {
             op: Operation::Assign,
             key: b"hello".to_vec(),
             data: b"hello".to_vec(),
         };
         input.upsert_msg(&mut tree, msg);
         assert_eq!(input.get(b"hello"), Some(&b"hello"[..]));
-        let msg = OwnedMessage {
+        let msg = Message {
             op: Operation::Assign,
             key: b"hello".to_vec(),
             data: b"worlds".to_vec(),
@@ -244,7 +244,7 @@ mod tests {
             vals: vec![],
         };
         {
-            let msg = OwnedMessage {
+            let msg = Message {
                 op: Operation::Assign,
                 key: b"foo".to_vec(),
                 data: b"abc".to_vec(),
@@ -253,7 +253,7 @@ mod tests {
             assert!(sibling.is_none());
         }
         {
-            let msg = OwnedMessage {
+            let msg = Message {
                 op: Operation::Assign,
                 key: b"bar".to_vec(),
                 data: b"xyz".to_vec(),

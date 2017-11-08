@@ -1,6 +1,6 @@
 use super::buf::Buf;
+use super::message::BufMessage;
 use super::message::Message;
-use super::message::OwnedMessage;
 use super::operation::Operation;
 use super::store::WriteStore;
 use super::tree::WriteTree;
@@ -19,7 +19,7 @@ pub struct WriteInternal<'a> {
     #[allow(dead_code)]
     data: Buf<'a>,
     keys: Vec<Buf<'a>>,
-    buffer: Vec<Message<'a>>,
+    buffer: Vec<BufMessage<'a>>,
     children: Vec<u64>,
 }
 
@@ -105,7 +105,7 @@ impl<'a, 'b> WriteInternal<'a> {
         }
 
         for _ in 0..buf_size {
-            let msg = Message {
+            let msg = BufMessage {
                 op: Operation::deserialize(rdr.read_u32::<LittleEndian>()?),
                 key: Buf::Owned(vec![]),
                 data: Buf::Owned(vec![]),
@@ -137,8 +137,8 @@ impl<'a, 'b> WriteInternal<'a> {
         })
     }
 
-    fn upsert(&mut self, msg: OwnedMessage) {
-        self.buffer.push(msg.into_message());
+    fn upsert(&mut self, msg: Message) {
+        self.buffer.push(msg.into_buf_message());
     }
 
     pub fn max_run(values: &[usize]) -> (usize, usize, usize) {
@@ -171,7 +171,7 @@ impl<'a, 'b> WriteInternal<'a> {
         self.buffer.append(&mut tail);
         let mut owned_msgs = Vec::with_capacity(len);
         for msg in msgs {
-            owned_msgs.push(msg.into_owned());
+            owned_msgs.push(msg.into_message());
         }
         let child_id = self.children[child_idx];
         let mut child = store.read(child_id).unwrap();
@@ -182,7 +182,7 @@ impl<'a, 'b> WriteInternal<'a> {
         &mut self,
         tree: &mut WriteTree,
         store: &mut WriteStore,
-        msg: OwnedMessage,
+        msg: Message,
     ) -> Option<WriteInternal<'b>> {
         self.upsert(msg);
         if self.children.len() < tree.max_buffer {
@@ -196,7 +196,7 @@ impl<'a, 'b> WriteInternal<'a> {
         &mut self,
         tree: &mut WriteTree,
         store: &mut WriteStore,
-        msgs: Vec<OwnedMessage>,
+        msgs: Vec<Message>,
     ) -> Option<WriteInternal<'b>> {
         for msg in msgs {
             self.upsert(msg);
