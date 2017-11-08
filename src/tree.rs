@@ -1,4 +1,3 @@
-
 pub struct WriteTree {
     pub epoch: u64,
     pub id: u64,
