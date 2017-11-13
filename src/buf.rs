@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 #[derive(Debug)]
 pub enum Buf<'a> {
     Shared(&'a mut [u8]),
@@ -33,3 +35,23 @@ impl<'a, 'b> Buf<'a> {
         }
     }
 }
+
+impl<'a> Ord for Buf<'a> {
+    fn cmp(&self, other: &Buf) -> Ordering {
+        self.bytes().cmp(other.bytes())
+    }
+}
+
+impl<'a> PartialOrd for Buf<'a> {
+    fn partial_cmp(&self, other: &Buf) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<'a> PartialEq for Buf<'a> {
+    fn eq(&self, other: &Buf) -> bool {
+        self.bytes() == other.bytes()
+    }
+}
+
+impl<'a> Eq for Buf<'a> {}

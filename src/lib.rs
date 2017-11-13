@@ -4,8 +4,10 @@ extern crate byteorder;
 extern crate rand;
 extern crate test;
 
+pub mod error;
 pub mod buf;
 pub mod operation;
+pub mod transaction;
 pub mod message;
 pub mod readleaf;
 pub mod writeleaf;

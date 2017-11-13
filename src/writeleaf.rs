@@ -1,5 +1,7 @@
 use super::buf::Buf;
 use super::message::Message;
+use super::node::NewSibling;
+use super::node::WriteBody;
 use super::tree::WriteTree;
 
 use std::io::Cursor;
@@ -14,9 +16,9 @@ use byteorder::WriteBytesExt;
 
 pub struct WriteLeaf<'a> {
     #[allow(dead_code)]
-    data: Buf<'a>,
-    keys: Vec<Buf<'a>>,
-    vals: Vec<Buf<'a>>,
+    pub data: Buf<'a>,
+    pub keys: Vec<Buf<'a>>,
+    pub vals: Vec<Buf<'a>>,
 }
 
 impl<'a, 'b> WriteLeaf<'a> {
@@ -91,7 +93,7 @@ impl<'a, 'b> WriteLeaf<'a> {
         }
     }
 
-    fn split(&mut self) -> WriteLeaf<'b> {
+    fn split(&mut self) -> NewSibling<'b> {
         let size = self.keys.len();
         let split = size / 2;
         let mut total = 0 as usize;
@@ -133,10 +135,15 @@ impl<'a, 'b> WriteLeaf<'a> {
         self.keys.truncate(split);
         self.vals.truncate(split);
 
-        WriteLeaf {
+        let key = sib_keys[0].bytes().to_vec();
+        let body = WriteLeaf {
             data: Buf::Owned(sib_data),
             keys: sib_keys,
             vals: sib_vals,
+        };
+        NewSibling {
+            key: key,
+            body: WriteBody::Leaf(body),
         }
     }
 
@@ -157,7 +164,7 @@ impl<'a, 'b> WriteLeaf<'a> {
         };
     }
 
-    pub fn upsert_msg(&mut self, tree: &mut WriteTree, msg: Message) -> Option<WriteLeaf<'b>> {
+    pub fn upsert_msg(&mut self, tree: &mut WriteTree, msg: Message) -> Option<NewSibling<'b>> {
         self.upsert(msg);
         if self.keys.len() < (tree.max_pivots + tree.max_buffer) {
             None
@@ -170,7 +177,7 @@ impl<'a, 'b> WriteLeaf<'a> {
         &mut self,
         tree: &mut WriteTree,
         msgs: Vec<Message>,
-    ) -> Option<WriteLeaf<'b>> {
+    ) -> Option<NewSibling<'b>> {
         for msg in msgs {
             self.upsert(msg);
         }
@@ -260,7 +267,10 @@ mod tests {
             };
             let sibling = input.upsert_msg(&mut tree, msg);
             assert!(sibling.is_some());
-            let sibling = sibling.unwrap();
+            let sibling = match sibling.unwrap().body {
+                WriteBody::Leaf(node) => node,
+                WriteBody::Internal(_) => panic!("expected leaf node"),
+            };
             assert_eq!(sibling.get(b"foo"), Some(&b"abc"[..]));
             assert_eq!(sibling.get(b"bar"), None);
             assert_eq!(input.get(b"foo"), None);

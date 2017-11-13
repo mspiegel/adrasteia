@@ -1,8 +1,11 @@
 use super::buf::Buf;
 use super::message::BufMessage;
 use super::message::Message;
+use super::node::NewSibling;
+use super::node::WriteBody;
 use super::operation::Operation;
 use super::store::WriteStore;
+use super::transaction::Transaction;
 use super::tree::WriteTree;
 
 use std::io::Cursor;
@@ -17,10 +20,10 @@ use byteorder::WriteBytesExt;
 
 pub struct WriteInternal<'a> {
     #[allow(dead_code)]
-    data: Buf<'a>,
-    keys: Vec<Buf<'a>>,
-    buffer: Vec<BufMessage<'a>>,
-    children: Vec<u64>,
+    pub data: Buf<'a>,
+    pub keys: Vec<Buf<'a>>,
+    pub buffer: Vec<BufMessage<'a>>,
+    pub children: Vec<u64>,
 }
 
 impl<'a, 'b> WriteInternal<'a> {
@@ -154,16 +157,109 @@ impl<'a, 'b> WriteInternal<'a> {
         (idx - (len - 1), len, values[idx])
     }
 
-    pub fn parent_to_child(&mut self, tree: &mut WriteTree, store: &mut WriteStore) {
-        self.buffer.sort_by(|a, b| a.key.bytes().cmp(b.key.bytes()));
-        let mut indices = vec![0; self.buffer.len()];
-        for i in 0..self.buffer.len() {
-            let pos = self.keys.binary_search_by(|probe| {
-                self.buffer[i].key.bytes().cmp(probe.bytes())
+    fn split(&mut self) -> NewSibling<'b> {
+        let key_size = self.keys.len();
+        let split = key_size / 2;
+
+        let mut right_msgs = vec![];
+
+        // TODO: replace with drain_filter when it lands in stable
+        let mut i = 0;
+        while i < self.buffer.len() {
+            if self.keys[split] >= self.buffer[i].key {
+                right_msgs.push(self.buffer.swap_remove(i));
+            }
+            i += 1;
+        }
+
+        let mut total = 0;
+        for key in &self.keys[split + 1..] {
+            total += key.len();
+        }
+        for msg in &right_msgs {
+            total += msg.key.len();
+            total += msg.data.len();
+        }
+
+        let mut sib_data = Vec::with_capacity(total);
+        let mut sib_keys = Vec::with_capacity(key_size - split - 1);
+        let mut sib_children = Vec::with_capacity(key_size - split);
+        let mut sib_buffer = Vec::with_capacity(right_msgs.len());
+        let sib_ptr = sib_data.as_mut_ptr();
+        let mut offset = 0 as isize;
+
+        for i in (split + 1)..key_size {
+            let buf = self.keys[i].bytes();
+            let len = buf.len();
+            sib_data.extend_from_slice(buf);
+            unsafe {
+                let data = from_raw_parts_mut(sib_ptr.offset(offset), len);
+                let key = Buf::Shared(data);
+                sib_keys.push(key);
+            }
+            offset += len as isize;
+        }
+
+        for i in (split + 1)..(key_size + 1) {
+            sib_children.push(self.children[i]);
+        }
+
+        for msg in right_msgs {
+            let buf = msg.key.bytes();
+            let len = buf.len();
+            sib_data.extend_from_slice(buf);
+            let key = unsafe {
+                let data = from_raw_parts_mut(sib_ptr.offset(offset), len);
+                Buf::Shared(data)
+            };
+            offset += len as isize;
+            let buf = msg.data.bytes();
+            let len = buf.len();
+            sib_data.extend_from_slice(buf);
+            let data = unsafe {
+                let data = from_raw_parts_mut(sib_ptr.offset(offset), len);
+                Buf::Shared(data)
+            };
+            offset += len as isize;
+            sib_buffer.push(BufMessage {
+                op: msg.op,
+                key: key,
+                data: data,
             });
-            indices[i] = match pos {
+        }
+
+        let split_key = self.keys[split].to_vec();
+        self.keys.truncate(split);
+        self.children.truncate(split + 1);
+
+        let body = WriteInternal {
+            data: Buf::Owned(sib_data),
+            keys: sib_keys,
+            buffer: sib_buffer,
+            children: sib_children,
+        };
+        NewSibling {
+            key: split_key,
+            body: WriteBody::Internal(body),
+        }
+    }
+
+    pub fn parent_to_child(
+        &mut self,
+        tree: &mut WriteTree,
+        store: &mut WriteStore,
+        txn: &mut Transaction,
+    ) -> Option<NewSibling<'b>> {
+        self.buffer.sort_by(|a, b| a.key.bytes().cmp(b.key.bytes()));
+        let mut indices = Vec::with_capacity(self.buffer.len());
+        for msg in &self.buffer {
+            let pos = self.keys.binary_search_by(
+                |probe| msg.key.bytes().cmp(probe.bytes()),
+            );
+            let pos = match pos {
                 Ok(val) | Err(val) => val,
             };
+            indices.push(pos);
         }
         let (buff_idx, len, child_idx) = WriteInternal::max_run(&indices);
         let mut msgs = self.buffer.split_off(buff_idx);
@@ -175,37 +271,56 @@ impl<'a, 'b> WriteInternal<'a> {
         }
         let child_id = self.children[child_idx];
         let mut child = store.read(child_id).unwrap();
-        let sibling = child.upsert_msgs(tree, store, owned_msgs);
+        let newchild = child.upsert_msgs(tree, store, txn, owned_msgs);
+        if child.header.epoch != tree.epoch {
+            txn.delete.push(child.header.id);
+            child.header.id = tree.next_id();
+            child.header.epoch = tree.epoch;
+        }
+        let child_id = child.header.id;
+        store.write(*child);
+        self.children[child_idx] = child_id;
+
+        if let Some(newchild) = newchild {
+            self.keys.insert(child_idx, Buf::Owned(newchild.key));
+            self.children.insert(child_idx + 1, newchild.id);
+        }
+
+        if self.keys.len() < tree.max_pivots {
+            None
+        } else {
+            Some(self.split())
+        }
     }
 
     pub fn upsert_msg(
         &mut self,
         tree: &mut WriteTree,
         store: &mut WriteStore,
+        txn: &mut Transaction,
         msg: Message,
-    ) -> Option<WriteInternal<'b>> {
+    ) -> Option<NewSibling<'b>> {
         self.upsert(msg);
         if self.children.len() < tree.max_buffer {
             return None;
         }
-        self.parent_to_child(tree, store);
-        None
+        self.parent_to_child(tree, store, txn)
     }
 
     pub fn upsert_msgs(
         &mut self,
         tree: &mut WriteTree,
         store: &mut WriteStore,
+        txn: &mut Transaction,
         msgs: Vec<Message>,
-    ) -> Option<WriteInternal<'b>> {
+    ) -> Option<NewSibling<'b>> {
         for msg in msgs {
             self.upsert(msg);
         }
         if self.children.len() < tree.max_buffer {
             return None;
         }
-        self.parent_to_child(tree, store);
-        None
+        self.parent_to_child(tree, store, txn)
     }
 }
 

@@ -1,5 +1,6 @@
 use super::message::Message;
 use super::store::WriteStore;
+use super::transaction::Transaction;
 use super::tree::WriteTree;
 use super::writeinternal::WriteInternal;
 use super::writeleaf::WriteLeaf;
@@ -16,8 +17,8 @@ use byteorder::ReadBytesExt;
 use byteorder::WriteBytesExt;
 
 pub struct WriteHeader {
-    id: u64,
-    epoch: u64,
+    pub id: u64,
+    pub epoch: u64,
 }
 
 pub enum WriteBody<'a> {
@@ -26,8 +27,18 @@ pub enum WriteBody<'a> {
 }
 
 pub struct WriteNode<'a> {
-    header: WriteHeader,
-    body: WriteBody<'a>,
+    pub header: WriteHeader,
+    pub body: WriteBody<'a>,
+}
+
+pub struct NewSibling<'a> {
+    pub key: Vec<u8>,
+    pub body: WriteBody<'a>,
+}
+
+pub struct NewChild {
+    pub key: Vec<u8>,
+    pub id: u64,
 }
 
 impl<'a, 'b> WriteNode<'a> {
@@ -37,11 +48,11 @@ impl<'a, 'b> WriteNode<'a> {
         let head = 2 * size_of::<u64>() + size_of::<u8>();
         let count = match self.body {
             WriteBody::Leaf(ref node) => {
-                wtr.write(&[0 as u8])?;
+                wtr.write_all(&[0 as u8])?;
                 node.serialize(wtr)
             }
             WriteBody::Internal(ref node) => {
-                wtr.write(&[1 as u8])?;
+                wtr.write_all(&[1 as u8])?;
                 node.serialize(wtr)
             }
         };
@@ -73,14 +84,29 @@ impl<'a, 'b> WriteNode<'a> {
         &mut self,
         tree: &mut WriteTree,
         store: &mut WriteStore,
+        txn: &mut Transaction,
         msgs: Vec<Message>,
-    ) -> Option<WriteNode<'b>> {
+    ) -> Option<NewChild> {
         let body = match self.body {
-            WriteBody::Leaf(ref mut node) => node.upsert_msgs(tree, msgs).map(WriteBody::Leaf),
-            WriteBody::Internal(ref mut node) => {
-                node.upsert_msgs(tree, store, msgs).map(WriteBody::Internal)
-            }
+            WriteBody::Leaf(ref mut node) => node.upsert_msgs(tree, msgs),
+            WriteBody::Internal(ref mut node) => node.upsert_msgs(tree, store, txn, msgs),
         };
-        None
+        if let Some(inner) = body {
+            let (key, body) = (inner.key, inner.body);
+
+            let id = tree.next_id();
+            let header = WriteHeader {
+                epoch: tree.epoch,
+                id: id,
+            };
+            let sibling = WriteNode {
+                header: header,
+                body: body,
+            };
+            store.write(sibling);
+            Some(NewChild { id: id, key: key })
+        } else {
+            None
+        }
     }
 }
