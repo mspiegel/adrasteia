@@ -170,10 +170,11 @@ impl<'a, 'b> WriteInternal<'a> {
         // TODO: replace with drain_filter when it lands in stable
         let mut i = 0;
         while i < self.buffer.len() {
-            if self.keys[split] >= self.buffer[i].key {
+            if self.buffer[i].key >= self.keys[split] {
                 right_msgs.push(self.buffer.swap_remove(i));
+            } else {
+                i += 1;
             }
-            i += 1;
         }
 
         let mut total = 0;
@@ -359,18 +360,20 @@ mod tests {
         let input = WriteInternal {
             data: Buf::Shared(empty),
             keys: vec![Buf::Owned(b"hello".to_vec())],
-            buffer: vec![BufMessage{
-                op: Operation::Assign,
-                key: Buf::Owned(b"foo".to_vec()),
-                data: Buf::Owned(b"bar".to_vec()),
-            }],
+            buffer: vec![
+                BufMessage {
+                    op: Operation::Assign,
+                    key: Buf::Owned(b"foo".to_vec()),
+                    data: Buf::Owned(b"bar".to_vec()),
+                },
+            ],
             children: vec![0, 1],
         };
         let mut wtr = vec![];
         let result = input.serialize(&mut wtr);
         assert!(result.is_ok());
         assert_eq!(
-            8 * size_of::<u64>() + size_of::<u32>() + "hello".len() + "foo".len()+ "bar".len(),
+            8 * size_of::<u64>() + size_of::<u32>() + "hello".len() + "foo".len() + "bar".len(),
             wtr.len()
         );
         let output = WriteInternal::deserialize(&mut wtr);
@@ -410,5 +413,70 @@ mod tests {
         assert_eq!(0, idx);
         assert_eq!(4, len);
         assert_eq!(1, val);
+    }
+
+    #[test]
+    fn split_writeinternal() {
+        let empty: &mut [u8] = &mut [];
+        let mut input = WriteInternal {
+            data: Buf::Shared(empty),
+            keys: vec![
+                Buf::Owned(b"a".to_vec()),
+                Buf::Owned(b"b".to_vec()),
+                Buf::Owned(b"c".to_vec()),
+                Buf::Owned(b"d".to_vec()),
+            ],
+            buffer: vec![
+                BufMessage {
+                    op: Operation::Assign,
+                    key: Buf::Owned(b"a".to_vec()),
+                    data: Buf::Owned(b"w".to_vec()),
+                },
+                BufMessage {
+                    op: Operation::Assign,
+                    key: Buf::Owned(b"b".to_vec()),
+                    data: Buf::Owned(b"x".to_vec()),
+                },
+                BufMessage {
+                    op: Operation::Assign,
+                    key: Buf::Owned(b"c".to_vec()),
+                    data: Buf::Owned(b"y".to_vec()),
+                },
+                BufMessage {
+                    op: Operation::Assign,
+                    key: Buf::Owned(b"d".to_vec()),
+                    data: Buf::Owned(b"z".to_vec()),
+                },
+            ],
+            children: vec![0, 1, 2, 3, 4],
+        };
+        let sibling = input.split();
+
+        assert_eq!(b"c".to_vec(), sibling.key);
+
+        assert_eq!(2, input.keys.len());
+        assert_eq!(2, input.buffer.len());
+        assert_eq!(3, input.children.len());
+        assert_eq!(b"a", input.keys[0].bytes());
+        assert_eq!(b"b", input.keys[1].bytes());
+        assert_eq!(b"a", input.buffer[0].key.bytes());
+        assert_eq!(b"b", input.buffer[1].key.bytes());
+        assert_eq!(b"w", input.buffer[0].data.bytes());
+        assert_eq!(b"x", input.buffer[1].data.bytes());
+        assert_eq!(vec![0, 1, 2], input.children);
+
+        let sibling = match sibling.body {
+            WriteBody::Leaf(_) => panic!("expected internal node"),
+            WriteBody::Internal(node) => node,
+        };
+        assert_eq!(1, sibling.keys.len());
+        assert_eq!(2, sibling.buffer.len());
+        assert_eq!(2, sibling.children.len());
+        assert_eq!(b"d", sibling.keys[0].bytes());
+        assert_eq!(b"c", sibling.buffer[0].key.bytes());
+        assert_eq!(b"d", sibling.buffer[1].key.bytes());
+        assert_eq!(b"y", sibling.buffer[0].data.bytes());
+        assert_eq!(b"z", sibling.buffer[1].data.bytes());
+        assert_eq!(vec![3, 4], sibling.children);
     }
 }
