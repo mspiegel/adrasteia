@@ -243,6 +243,47 @@ mod tests {
     }
 
     #[test]
+    fn roundtrip_empty_writeleaf() {
+        let empty: &mut [u8] = &mut [];
+        let input = WriteLeaf {
+            data: Buf::Shared(empty),
+            keys: vec![],
+            vals: vec![],
+        };
+        let mut wtr = vec![];
+        let result = input.serialize(&mut wtr);
+        assert!(result.is_ok());
+        assert_eq!(size_of::<u64>(), wtr.len());
+        let output = WriteLeaf::deserialize(&mut wtr);
+        assert!(output.is_ok());
+        let output = output.unwrap();
+        assert_eq!(0, output.keys.len());
+        assert_eq!(0, output.vals.len());
+    }
+
+    #[test]
+    fn roundtrip_nonempty_writeleaf() {
+        let empty: &mut [u8] = &mut [];
+        let input = WriteLeaf {
+            data: Buf::Shared(empty),
+            keys: vec![Buf::Owned(b"hello".to_vec())],
+            vals: vec![Buf::Owned(b"world".to_vec())],
+        };
+        let mut wtr = vec![];
+        let result = input.serialize(&mut wtr);
+        assert!(result.is_ok());
+        assert_eq!(
+            3 * size_of::<u64>() + "hello".len() + "world".len(),
+            wtr.len()
+        );
+        let output = WriteLeaf::deserialize(&mut wtr);
+        assert!(output.is_ok());
+        let output = output.unwrap();
+        assert_eq!(b"hello", output.keys[0].bytes());
+        assert_eq!(b"world", output.vals[0].bytes());
+    }
+
+    #[test]
     fn split_writeleaf() {
         let mut tree = WriteTree::new(1, 1);
         let mut input = WriteLeaf {

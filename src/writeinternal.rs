@@ -31,8 +31,10 @@ impl<'a, 'b> WriteInternal<'a> {
         let mut total = 0;
         let key_size = self.keys.len();
         let buf_size = self.buffer.len();
+        let child_size = self.children.len();
         wtr.write_u64::<LittleEndian>(key_size as u64)?;
         wtr.write_u64::<LittleEndian>(buf_size as u64)?;
+        wtr.write_u64::<LittleEndian>(child_size as u64)?;
         total += 2 * size_of::<u64>();
 
         for key in &self.keys {
@@ -83,15 +85,17 @@ impl<'a, 'b> WriteInternal<'a> {
         let mut rdr = Cursor::new(input);
         let key_size = rdr.read_u64::<LittleEndian>()? as usize;
         let buf_size = rdr.read_u64::<LittleEndian>()? as usize;
+        let child_size = rdr.read_u64::<LittleEndian>()? as usize;
 
         let mut keys = Vec::with_capacity(key_size);
-        let mut children = Vec::with_capacity(key_size + 1);
         let mut buffer = Vec::with_capacity(buf_size);
+        let mut children = Vec::with_capacity(child_size);
 
-        let mut offset = (2 * size_of::<u64>()) as isize;
+        let mut offset = (3 * size_of::<u64>()) as isize;
         offset += (key_size * size_of::<u64>()) as isize;
-        offset += ((key_size + 1) * size_of::<u64>()) as isize;
-        offset += (3 * buf_size * size_of::<u64>()) as isize;
+        offset += (child_size * size_of::<u64>()) as isize;
+        offset += (2 * buf_size * size_of::<u64>()) as isize;
+        offset += (buf_size * size_of::<u32>()) as isize;
 
         for _ in 0..key_size {
             let len = rdr.read_u64::<LittleEndian>()? as usize;
@@ -103,7 +107,7 @@ impl<'a, 'b> WriteInternal<'a> {
             offset += len as isize;
         }
 
-        for _ in 0..(key_size + 1) {
+        for _ in 0..child_size {
             children.push(rdr.read_u64::<LittleEndian>()?)
         }
 
@@ -327,6 +331,57 @@ impl<'a, 'b> WriteInternal<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn roundtrip_empty_writeinternal() {
+        let empty: &mut [u8] = &mut [];
+        let input = WriteInternal {
+            data: Buf::Shared(empty),
+            keys: vec![],
+            buffer: vec![],
+            children: vec![],
+        };
+        let mut wtr = vec![];
+        let result = input.serialize(&mut wtr);
+        assert!(result.is_ok());
+        assert_eq!(3 * size_of::<u64>(), wtr.len());
+        let output = WriteInternal::deserialize(&mut wtr);
+        assert!(output.is_ok());
+        let output = output.unwrap();
+        assert_eq!(0, output.keys.len());
+        assert_eq!(0, output.buffer.len());
+        assert_eq!(0, output.children.len());
+    }
+
+    #[test]
+    fn roundtrip_nonempty_writeinternal() {
+        let empty: &mut [u8] = &mut [];
+        let input = WriteInternal {
+            data: Buf::Shared(empty),
+            keys: vec![Buf::Owned(b"hello".to_vec())],
+            buffer: vec![BufMessage{
+                op: Operation::Assign,
+                key: Buf::Owned(b"foo".to_vec()),
+                data: Buf::Owned(b"bar".to_vec()),
+            }],
+            children: vec![0, 1],
+        };
+        let mut wtr = vec![];
+        let result = input.serialize(&mut wtr);
+        assert!(result.is_ok());
+        assert_eq!(
+            8 * size_of::<u64>() + size_of::<u32>() + "hello".len() + "foo".len()+ "bar".len(),
+            wtr.len()
+        );
+        let output = WriteInternal::deserialize(&mut wtr);
+        assert!(output.is_ok());
+        let output = output.unwrap();
+        assert_eq!(b"hello", output.keys[0].bytes());
+        assert_eq!(b"foo", output.buffer[0].key.bytes());
+        assert_eq!(b"bar", output.buffer[0].data.bytes());
+        assert_eq!(Operation::Assign, output.buffer[0].op);
+        assert_eq!(vec![0, 1], output.children);
+    }
 
     #[test]
     fn max_run() {
