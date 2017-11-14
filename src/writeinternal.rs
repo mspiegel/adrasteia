@@ -24,10 +24,16 @@ pub struct WriteInternal<'a> {
     pub keys: Vec<Buf<'a>>,
     pub buffer: Vec<BufMessage<'a>>,
     pub children: Vec<u64>,
+    pub serde: bool,
 }
 
 impl<'a, 'b> WriteInternal<'a> {
     pub fn serialize(&self, wtr: &mut Write) -> Result<usize> {
+        if self.serde {
+            let bytes = self.data.bytes();
+            wtr.write_all(bytes)?;
+            return Ok(bytes.len());
+        }
         let mut total = 0;
         let key_size = self.keys.len();
         let buf_size = self.buffer.len();
@@ -35,7 +41,7 @@ impl<'a, 'b> WriteInternal<'a> {
         wtr.write_u64::<LittleEndian>(key_size as u64)?;
         wtr.write_u64::<LittleEndian>(buf_size as u64)?;
         wtr.write_u64::<LittleEndian>(child_size as u64)?;
-        total += 2 * size_of::<u64>();
+        total += 3 * size_of::<u64>();
 
         for key in &self.keys {
             let len = key.bytes().len();
@@ -141,6 +147,7 @@ impl<'a, 'b> WriteInternal<'a> {
             keys: keys,
             buffer: buffer,
             children: children,
+            serde: false,
         })
     }
 
@@ -177,26 +184,77 @@ impl<'a, 'b> WriteInternal<'a> {
             }
         }
 
-        let mut total = 0;
-        for key in &self.keys[split + 1..] {
-            total += key.len();
+        let mut total = 3 * size_of::<u64>();
+        total += (key_size - split - 1) * size_of::<u64>();
+        total += (key_size - split) * size_of::<u64>();
+        total += right_msgs.len() * size_of::<u32>();
+        total += 2 * right_msgs.len() * size_of::<u64>();
+
+        for i in (split + 1)..key_size {
+            total += self.keys[i].bytes().len();
         }
+
         for msg in &right_msgs {
-            total += msg.key.len();
-            total += msg.data.len();
+            total += msg.key.bytes().len();
+        }
+
+        for msg in &right_msgs {
+            total += msg.data.bytes().len();
         }
 
         let mut sib_data = Vec::with_capacity(total);
+        let sib_ptr = sib_data.as_mut_ptr();
+
+        sib_data.write_u64::<LittleEndian>((key_size - split - 1) as u64).unwrap();
+        sib_data.write_u64::<LittleEndian>((key_size - split) as u64).unwrap();
+        sib_data.write_u64::<LittleEndian>(right_msgs.len() as u64).unwrap();
+
+        for i in (split + 1)..key_size {
+            sib_data.write_u64::<LittleEndian>(self.keys[i].bytes().len() as u64).unwrap();
+        }
+
+        for i in (split + 1)..(key_size + 1) {
+            sib_data.write_u64::<LittleEndian>(self.children[i]).unwrap();
+        }
+
+        for msg in &right_msgs {
+            sib_data.write_u32::<LittleEndian>(msg.op.serialize()).unwrap();
+        }
+
+        for msg in &right_msgs {
+            sib_data.write_u64::<LittleEndian>(msg.key.bytes().len() as u64).unwrap();
+        }
+
+        for msg in &right_msgs {
+            sib_data.write_u64::<LittleEndian>(msg.data.bytes().len() as u64).unwrap();
+        }
+
+        for i in (split + 1)..key_size {
+            sib_data.write_all(self.keys[i].bytes()).unwrap();
+        }
+        for msg in &right_msgs {
+            sib_data.write_all(msg.key.bytes()).unwrap();
+        }
+        for msg in &right_msgs {
+            sib_data.write_all(msg.data.bytes()).unwrap();
+        }
+
         let mut sib_keys = Vec::with_capacity(key_size - split - 1);
         let mut sib_children = Vec::with_capacity(key_size - split);
         let mut sib_buffer = Vec::with_capacity(right_msgs.len());
-        let sib_ptr = sib_data.as_mut_ptr();
-        let mut offset = 0 as isize;
+
+        for i in (split + 1)..(key_size + 1) {
+            sib_children.push(self.children[i]);
+        }
+
+        let mut offset = (3 * size_of::<u64>()) as isize;
+        offset += ((key_size - split - 1) * size_of::<u64>()) as isize;
+        offset += ((key_size - split) * size_of::<u64>()) as isize;
+        offset += (2 * right_msgs.len() * size_of::<u64>()) as isize;
+        offset += (right_msgs.len() * size_of::<u32>()) as isize;
 
         for i in (split + 1)..key_size {
-            let buf = self.keys[i].bytes();
-            let len = buf.len();
-            sib_data.extend_from_slice(buf);
+            let len = self.keys[i].bytes().len();
             unsafe {
                 let data = from_raw_parts_mut(sib_ptr.offset(offset), len);
                 let key = Buf::Shared(data);
@@ -205,32 +263,31 @@ impl<'a, 'b> WriteInternal<'a> {
             offset += len as isize;
         }
 
-        for i in (split + 1)..(key_size + 1) {
-            sib_children.push(self.children[i]);
+        for msg in &right_msgs {
+            let msg = BufMessage {
+                op: msg.op,
+                key: Buf::Owned(vec![]),
+                data: Buf::Owned(vec![]),
+            };
+            sib_buffer.push(msg);
         }
 
-        for msg in right_msgs {
-            let buf = msg.key.bytes();
-            let len = buf.len();
-            sib_data.extend_from_slice(buf);
-            let key = unsafe {
+        for i in 0..right_msgs.len() {
+            let len = right_msgs[i].key.bytes().len();
+            sib_buffer[i].key = unsafe {
                 let data = from_raw_parts_mut(sib_ptr.offset(offset), len);
                 Buf::Shared(data)
             };
             offset += len as isize;
-            let buf = msg.data.bytes();
-            let len = buf.len();
-            sib_data.extend_from_slice(buf);
-            let data = unsafe {
+        }
+
+        for i in 0..right_msgs.len() {
+            let len = right_msgs[i].data.bytes().len();
+            sib_buffer[i].data = unsafe {
                 let data = from_raw_parts_mut(sib_ptr.offset(offset), len);
                 Buf::Shared(data)
             };
             offset += len as isize;
-            sib_buffer.push(BufMessage {
-                op: msg.op,
-                key: key,
-                data: data,
-            });
         }
 
         let split_key = self.keys[split].to_vec();
@@ -242,6 +299,7 @@ impl<'a, 'b> WriteInternal<'a> {
             keys: sib_keys,
             buffer: sib_buffer,
             children: sib_children,
+            serde: true,
         };
         NewSibling {
             key: split_key,
@@ -341,6 +399,7 @@ mod tests {
             keys: vec![],
             buffer: vec![],
             children: vec![],
+            serde: false,
         };
         let mut wtr = vec![];
         let result = input.serialize(&mut wtr);
@@ -368,6 +427,7 @@ mod tests {
                 },
             ],
             children: vec![0, 1],
+            serde: false,
         };
         let mut wtr = vec![];
         let result = input.serialize(&mut wtr);
@@ -376,6 +436,7 @@ mod tests {
             8 * size_of::<u64>() + size_of::<u32>() + "hello".len() + "foo".len() + "bar".len(),
             wtr.len()
         );
+        assert_eq!(result.unwrap(), wtr.len());
         let output = WriteInternal::deserialize(&mut wtr);
         assert!(output.is_ok());
         let output = output.unwrap();
@@ -449,6 +510,7 @@ mod tests {
                 },
             ],
             children: vec![0, 1, 2, 3, 4],
+            serde: false,
         };
         let sibling = input.split();
 

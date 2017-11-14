@@ -276,6 +276,7 @@ mod tests {
             3 * size_of::<u64>() + "hello".len() + "world".len(),
             wtr.len()
         );
+        assert_eq!(result.unwrap(), wtr.len());
         let output = WriteLeaf::deserialize(&mut wtr);
         assert!(output.is_ok());
         let output = output.unwrap();
