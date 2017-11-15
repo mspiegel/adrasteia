@@ -540,5 +540,21 @@ mod tests {
         assert_eq!(b"y", sibling.buffer[0].data.bytes());
         assert_eq!(b"z", sibling.buffer[1].data.bytes());
         assert_eq!(vec![3, 4], sibling.children);
+
+        let mut wtr = vec![];
+        let result = sibling.serialize(&mut wtr);
+        assert!(result.is_ok());
+        let output = WriteInternal::deserialize(&mut wtr);
+        assert!(output.is_ok());
+        let output = output.unwrap();
+        assert_eq!(1, output.keys.len());
+        assert_eq!(2, output.buffer.len());
+        assert_eq!(2, output.children.len());
+        assert_eq!(b"d", output.keys[0].bytes());
+        assert_eq!(b"c", output.buffer[0].key.bytes());
+        assert_eq!(b"d", output.buffer[1].key.bytes());
+        assert_eq!(b"y", output.buffer[0].data.bytes());
+        assert_eq!(b"z", output.buffer[1].data.bytes());
+        assert_eq!(vec![3, 4], output.children);
     }
 }
