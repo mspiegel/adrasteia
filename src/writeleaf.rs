@@ -21,7 +21,7 @@ pub struct WriteLeaf<'a> {
     pub vals: Vec<Buf<'a>>,
 }
 
-impl<'a, 'b> WriteLeaf<'a> {
+impl<'a> WriteLeaf<'a> {
     pub fn serialize(&self, wtr: &mut Write) -> Result<usize> {
         let size = self.keys.len();
         let mut total = size_of::<u64>() + 2 * size * size_of::<u64>();
@@ -93,7 +93,7 @@ impl<'a, 'b> WriteLeaf<'a> {
         }
     }
 
-    fn split(&mut self) -> NewSibling<'b> {
+    fn split(&mut self) -> NewSibling<'a> {
         let size = self.keys.len();
         let split = size / 2;
         let mut total = 0 as usize;
@@ -164,7 +164,7 @@ impl<'a, 'b> WriteLeaf<'a> {
         };
     }
 
-    pub fn upsert_msg(&mut self, tree: &mut WriteTree, msg: Message) -> Option<NewSibling<'b>> {
+    pub fn upsert_msg(&mut self, tree: &mut WriteTree, msg: Message) -> Option<NewSibling<'a>> {
         self.upsert(msg);
         if self.keys.len() < (tree.max_pivots + tree.max_buffer) {
             None
@@ -177,7 +177,7 @@ impl<'a, 'b> WriteLeaf<'a> {
         &mut self,
         tree: &mut WriteTree,
         msgs: Vec<Message>,
-    ) -> Option<NewSibling<'b>> {
+    ) -> Option<NewSibling<'a>> {
         for msg in msgs {
             self.upsert(msg);
         }

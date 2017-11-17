@@ -27,7 +27,7 @@ pub struct WriteInternal<'a> {
     pub serde: bool,
 }
 
-impl<'a, 'b> WriteInternal<'a> {
+impl<'a> WriteInternal<'a> {
     pub fn serialize(&self, wtr: &mut Write) -> Result<usize> {
         if self.serde {
             let bytes = self.data.bytes();
@@ -168,7 +168,7 @@ impl<'a, 'b> WriteInternal<'a> {
         (idx - (len - 1), len, values[idx])
     }
 
-    fn split(&mut self) -> NewSibling<'b> {
+    fn split(&mut self) -> NewSibling<'a> {
         let key_size = self.keys.len();
         let split = key_size / 2;
 
@@ -328,7 +328,7 @@ impl<'a, 'b> WriteInternal<'a> {
         tree: &mut WriteTree,
         store: &mut WriteStore,
         txn: &mut Transaction,
-    ) -> Option<NewSibling<'b>> {
+    ) -> Option<NewSibling<'a>> {
         self.buffer.sort_by(|a, b| a.key.bytes().cmp(b.key.bytes()));
         let mut indices = Vec::with_capacity(self.buffer.len());
         for msg in &self.buffer {
@@ -378,7 +378,7 @@ impl<'a, 'b> WriteInternal<'a> {
         store: &mut WriteStore,
         txn: &mut Transaction,
         msg: Message,
-    ) -> Option<NewSibling<'b>> {
+    ) -> Option<NewSibling<'a>> {
         self.upsert(msg);
         if self.children.len() < tree.max_buffer {
             return None;
@@ -392,7 +392,7 @@ impl<'a, 'b> WriteInternal<'a> {
         store: &mut WriteStore,
         txn: &mut Transaction,
         msgs: Vec<Message>,
-    ) -> Option<NewSibling<'b>> {
+    ) -> Option<NewSibling<'a>> {
         for msg in msgs {
             self.upsert(msg);
         }

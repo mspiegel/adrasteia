@@ -31,8 +31,8 @@ impl ReadTree {
         let leafs = {
             self.rleafs.read().unwrap().clone()
         };
-        for id in leafs.iter() {
-            let node = store.read(*id);
+        for id in leafs {
+            let node = store.read(id);
             let leaf = node.unwrap().body.into_leaf();
             for i in 0..leaf.keys.len() {
                 scanner(leaf.keys[i], leaf.vals[i]);

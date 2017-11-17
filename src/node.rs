@@ -97,17 +97,12 @@ impl<'a, 'b> WriteNode<'a> {
         })
     }
 
-    pub fn upsert_msgs(
+    fn upsert(
         &mut self,
+        body: Option<NewSibling<'a>>,
         tree: &mut WriteTree,
-        store: &mut WriteStore,
-        txn: &mut Transaction,
-        msgs: Vec<Message>,
+        store: &mut WriteStore<'a>,
     ) -> Option<NewChild> {
-        let body = match self.body {
-            WriteBody::Leaf(ref mut node) => node.upsert_msgs(tree, msgs),
-            WriteBody::Internal(ref mut node) => node.upsert_msgs(tree, store, txn, msgs),
-        };
         if let Some(inner) = body {
             let (key, body) = (inner.key, inner.body);
 
@@ -125,5 +120,33 @@ impl<'a, 'b> WriteNode<'a> {
         } else {
             None
         }
+    }
+
+    pub fn upsert_msg(
+        &mut self,
+        tree: &mut WriteTree,
+        store: &mut WriteStore<'a>,
+        txn: &mut Transaction,
+        msg: Message,
+    ) -> Option<NewChild> {
+        let body = match self.body {
+            WriteBody::Leaf(ref mut node) => node.upsert_msg(tree, msg),
+            WriteBody::Internal(ref mut node) => node.upsert_msg(tree, store, txn, msg),
+        };
+        self.upsert(body, tree, store)
+    }
+
+    pub fn upsert_msgs(
+        &mut self,
+        tree: &mut WriteTree,
+        store: &mut WriteStore<'a>,
+        txn: &mut Transaction,
+        msgs: Vec<Message>,
+    ) -> Option<NewChild> {
+        let body = match self.body {
+            WriteBody::Leaf(ref mut node) => node.upsert_msgs(tree, msgs),
+            WriteBody::Internal(ref mut node) => node.upsert_msgs(tree, store, txn, msgs),
+        };
+        self.upsert(body, tree, store)
     }
 }
