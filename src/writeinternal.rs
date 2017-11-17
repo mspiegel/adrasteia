@@ -205,28 +205,44 @@ impl<'a, 'b> WriteInternal<'a> {
         let mut sib_data = Vec::with_capacity(total);
         let sib_ptr = sib_data.as_mut_ptr();
 
-        sib_data.write_u64::<LittleEndian>((key_size - split - 1) as u64).unwrap();
-        sib_data.write_u64::<LittleEndian>((key_size - split) as u64).unwrap();
-        sib_data.write_u64::<LittleEndian>(right_msgs.len() as u64).unwrap();
+        sib_data
+            .write_u64::<LittleEndian>((key_size - split - 1) as u64)
+            .unwrap();
+        sib_data
+            .write_u64::<LittleEndian>((key_size - split) as u64)
+            .unwrap();
+        sib_data
+            .write_u64::<LittleEndian>(right_msgs.len() as u64)
+            .unwrap();
 
         for i in (split + 1)..key_size {
-            sib_data.write_u64::<LittleEndian>(self.keys[i].bytes().len() as u64).unwrap();
+            sib_data
+                .write_u64::<LittleEndian>(self.keys[i].bytes().len() as u64)
+                .unwrap();
         }
 
         for i in (split + 1)..(key_size + 1) {
-            sib_data.write_u64::<LittleEndian>(self.children[i]).unwrap();
+            sib_data
+                .write_u64::<LittleEndian>(self.children[i])
+                .unwrap();
         }
 
         for msg in &right_msgs {
-            sib_data.write_u32::<LittleEndian>(msg.op.serialize()).unwrap();
+            sib_data
+                .write_u32::<LittleEndian>(msg.op.serialize())
+                .unwrap();
         }
 
         for msg in &right_msgs {
-            sib_data.write_u64::<LittleEndian>(msg.key.bytes().len() as u64).unwrap();
+            sib_data
+                .write_u64::<LittleEndian>(msg.key.bytes().len() as u64)
+                .unwrap();
         }
 
         for msg in &right_msgs {
-            sib_data.write_u64::<LittleEndian>(msg.data.bytes().len() as u64).unwrap();
+            sib_data
+                .write_u64::<LittleEndian>(msg.data.bytes().len() as u64)
+                .unwrap();
         }
 
         for i in (split + 1)..key_size {

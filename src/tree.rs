@@ -1,8 +1,11 @@
 use super::error::ErrorType;
+use super::store::ReadStore;
 use super::store::WriteStore;
 use super::transaction::Transaction;
 
 use std::io;
+use std::sync::Arc;
+use std::sync::RwLock;
 
 pub struct WriteTree {
     pub epoch: u64,
@@ -10,6 +13,32 @@ pub struct WriteTree {
     pub max_pivots: usize,
     pub max_buffer: usize,
     pub txn: bool,
+}
+
+pub struct ReadTree {
+    pub rleafs: Arc<RwLock<Vec<u64>>>,
+}
+
+impl ReadTree {
+    pub fn new() -> ReadTree {
+        ReadTree { rleafs: Arc::new(RwLock::new(vec![])) }
+    }
+
+    pub fn scan<F>(&self, store: &ReadStore, scanner: F)
+    where
+        F: Fn(&[u8], &[u8]),
+    {
+        let leafs = {
+            self.rleafs.read().unwrap().clone()
+        };
+        for id in leafs.iter() {
+            let node = store.read(*id);
+            let leaf = node.unwrap().body.into_leaf();
+            for i in 0..leaf.keys.len() {
+                scanner(leaf.keys[i], leaf.vals[i]);
+            }
+        }
+    }
 }
 
 impl WriteTree {

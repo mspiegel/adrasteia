@@ -11,9 +11,9 @@ use byteorder::WriteBytesExt;
 
 pub struct ReadLeaf<'a> {
     #[allow(dead_code)]
-    data: &'a [u8],
-    keys: Vec<&'a [u8]>,
-    vals: Vec<&'a [u8]>,
+    pub data: &'a [u8],
+    pub keys: Vec<&'a [u8]>,
+    pub vals: Vec<&'a [u8]>,
 }
 
 impl<'a> ReadLeaf<'a> {

@@ -1,4 +1,5 @@
 use super::message::Message;
+use super::readleaf::ReadLeaf;
 use super::store::WriteStore;
 use super::transaction::Transaction;
 use super::tree::WriteTree;
@@ -11,14 +12,17 @@ use std::io::Result;
 use std::io::Write;
 use std::mem::size_of;
 
-
 use byteorder::LittleEndian;
 use byteorder::ReadBytesExt;
 use byteorder::WriteBytesExt;
 
-pub struct WriteHeader {
+pub struct Header {
     pub id: u64,
     pub epoch: u64,
+}
+
+pub enum ReadBody<'a> {
+    Leaf(ReadLeaf<'a>),
 }
 
 pub enum WriteBody<'a> {
@@ -26,8 +30,13 @@ pub enum WriteBody<'a> {
     Internal(WriteInternal<'a>),
 }
 
+pub struct ReadNode<'a> {
+    pub header: Header,
+    pub body: ReadBody<'a>,
+}
+
 pub struct WriteNode<'a> {
-    pub header: WriteHeader,
+    pub header: Header,
     pub body: WriteBody<'a>,
 }
 
@@ -39,6 +48,14 @@ pub struct NewSibling<'a> {
 pub struct NewChild {
     pub key: Vec<u8>,
     pub id: u64,
+}
+
+impl<'a> ReadBody<'a> {
+    pub fn into_leaf(self) -> ReadLeaf<'a> {
+        match self {
+            ReadBody::Leaf(leaf) => leaf,
+        }
+    }
 }
 
 impl<'a, 'b> WriteNode<'a> {
@@ -63,7 +80,7 @@ impl<'a, 'b> WriteNode<'a> {
         let mut rdr = Cursor::new(input);
         let id = rdr.read_u64::<LittleEndian>()?;
         let epoch = rdr.read_u64::<LittleEndian>()?;
-        let header = WriteHeader {
+        let header = Header {
             id: id,
             epoch: epoch,
         };
@@ -95,7 +112,7 @@ impl<'a, 'b> WriteNode<'a> {
             let (key, body) = (inner.key, inner.body);
 
             let id = tree.next_id();
-            let header = WriteHeader {
+            let header = Header {
                 epoch: tree.epoch,
                 id: id,
             };
