@@ -51,14 +51,14 @@ pub struct NewChild {
 }
 
 impl<'a> ReadBody<'a> {
-    pub fn into_leaf(self) -> ReadLeaf<'a> {
-        match self {
-            ReadBody::Leaf(leaf) => leaf,
+    pub fn leaf(&self) -> &ReadLeaf<'a> {
+        match *self {
+            ReadBody::Leaf(ref leaf) => leaf,
         }
     }
 }
 
-impl<'a, 'b> WriteNode<'a> {
+impl<'a> WriteNode<'a> {
     pub fn serialize(&self, wtr: &mut Write) -> Result<usize> {
         wtr.write_u64::<LittleEndian>(self.header.id)?;
         wtr.write_u64::<LittleEndian>(self.header.epoch)?;

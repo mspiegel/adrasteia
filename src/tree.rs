@@ -33,7 +33,10 @@ impl ReadTree {
         };
         for id in leafs {
             let node = store.read(id);
-            let leaf = node.unwrap().body.into_leaf();
+            let leaf = match node {
+                Some(ref node) => node.body.leaf(),
+                None => panic!("unable to find leaf node {}", id),
+            };
             for i in 0..leaf.keys.len() {
                 scanner(leaf.keys[i], leaf.vals[i]);
             }

@@ -47,7 +47,7 @@ pub struct BufMessage<'a> {
     pub data: Buf<'a>,
 }
 
-impl<'a, 'b> BufMessage<'a> {
+impl<'a> BufMessage<'a> {
     fn apply_assign(&self, buf: &mut Buf) {
         if let Buf::Owned(ref mut val) = *buf {
             val.clear();
