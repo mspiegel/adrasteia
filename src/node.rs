@@ -1,10 +1,9 @@
+use super::internal::Internal;
+use super::leaf::Leaf;
 use super::message::Message;
-use super::readleaf::ReadLeaf;
-use super::store::WriteStore;
+use super::store::Store;
 use super::transaction::Transaction;
 use super::tree::WriteTree;
-use super::writeinternal::WriteInternal;
-use super::writeleaf::WriteLeaf;
 
 use std::io::Cursor;
 use std::io::Read;
@@ -21,28 +20,19 @@ pub struct Header {
     pub epoch: u64,
 }
 
-pub enum ReadBody<'a> {
-    Leaf(ReadLeaf<'a>),
+pub enum Body<'a> {
+    Leaf(Leaf<'a>),
+    Internal(Internal<'a>),
 }
 
-pub enum WriteBody<'a> {
-    Leaf(WriteLeaf<'a>),
-    Internal(WriteInternal<'a>),
-}
-
-pub struct ReadNode<'a> {
+pub struct Node<'a> {
     pub header: Header,
-    pub body: ReadBody<'a>,
-}
-
-pub struct WriteNode<'a> {
-    pub header: Header,
-    pub body: WriteBody<'a>,
+    pub body: Body<'a>,
 }
 
 pub struct NewSibling<'a> {
     pub key: Vec<u8>,
-    pub body: WriteBody<'a>,
+    pub body: Body<'a>,
 }
 
 pub struct NewChild {
@@ -50,25 +40,26 @@ pub struct NewChild {
     pub id: u64,
 }
 
-impl<'a> ReadBody<'a> {
-    pub fn leaf(&self) -> &ReadLeaf<'a> {
+impl<'a> Body<'a> {
+    pub fn leaf(&self) -> &Leaf<'a> {
         match *self {
-            ReadBody::Leaf(ref leaf) => leaf,
+            Body::Leaf(ref leaf) => leaf,
+            Body::Internal(_) => panic!("attempt to convert internal to leaf"),
         }
     }
 }
 
-impl<'a> WriteNode<'a> {
+impl<'a> Node<'a> {
     pub fn serialize(&self, wtr: &mut Write) -> Result<usize> {
         wtr.write_u64::<LittleEndian>(self.header.id)?;
         wtr.write_u64::<LittleEndian>(self.header.epoch)?;
         let head = 2 * size_of::<u64>() + size_of::<u8>();
         let count = match self.body {
-            WriteBody::Leaf(ref node) => {
+            Body::Leaf(ref node) => {
                 wtr.write_all(&[0 as u8])?;
                 node.serialize(wtr)
             }
-            WriteBody::Internal(ref node) => {
+            Body::Internal(ref node) => {
                 wtr.write_all(&[1 as u8])?;
                 node.serialize(wtr)
             }
@@ -76,7 +67,7 @@ impl<'a> WriteNode<'a> {
         count.map(|x| x + head)
     }
 
-    pub fn deserialize(input: &mut [u8]) -> Result<WriteNode> {
+    pub fn deserialize(input: &mut [u8]) -> Result<Node> {
         let mut rdr = Cursor::new(input);
         let id = rdr.read_u64::<LittleEndian>()?;
         let epoch = rdr.read_u64::<LittleEndian>()?;
@@ -87,11 +78,11 @@ impl<'a> WriteNode<'a> {
         let mut byte = [0 as u8];
         rdr.read_exact(&mut byte)?;
         let body = match byte[0] {
-            0 => WriteBody::Leaf(WriteLeaf::deserialize(rdr.into_inner())?),
-            1 => WriteBody::Internal(WriteInternal::deserialize(rdr.into_inner())?),
+            0 => Body::Leaf(Leaf::deserialize(rdr.into_inner())?),
+            1 => Body::Internal(Internal::deserialize(rdr.into_inner())?),
             _ => panic!("unknown node type"),
         };
-        Ok(WriteNode {
+        Ok(Node {
             header: header,
             body: body,
         })
@@ -101,7 +92,7 @@ impl<'a> WriteNode<'a> {
         &mut self,
         body: Option<NewSibling<'a>>,
         tree: &mut WriteTree,
-        store: &mut WriteStore<'a>,
+        store: &mut Store<'a>,
     ) -> Option<NewChild> {
         if let Some(inner) = body {
             let (key, body) = (inner.key, inner.body);
@@ -111,7 +102,7 @@ impl<'a> WriteNode<'a> {
                 epoch: tree.epoch,
                 id: id,
             };
-            let sibling = WriteNode {
+            let sibling = Node {
                 header: header,
                 body: body,
             };
@@ -125,13 +116,13 @@ impl<'a> WriteNode<'a> {
     pub fn upsert_msg(
         &mut self,
         tree: &mut WriteTree,
-        store: &mut WriteStore<'a>,
+        store: &mut Store<'a>,
         txn: &mut Transaction,
         msg: Message,
     ) -> Option<NewChild> {
         let body = match self.body {
-            WriteBody::Leaf(ref mut node) => node.upsert_msg(tree, msg),
-            WriteBody::Internal(ref mut node) => node.upsert_msg(tree, store, txn, msg),
+            Body::Leaf(ref mut node) => node.upsert_msg(tree, msg),
+            Body::Internal(ref mut node) => node.upsert_msg(tree, store, txn, msg),
         };
         self.upsert(body, tree, store)
     }
@@ -139,13 +130,13 @@ impl<'a> WriteNode<'a> {
     pub fn upsert_msgs(
         &mut self,
         tree: &mut WriteTree,
-        store: &mut WriteStore<'a>,
+        store: &mut Store<'a>,
         txn: &mut Transaction,
         msgs: Vec<Message>,
     ) -> Option<NewChild> {
         let body = match self.body {
-            WriteBody::Leaf(ref mut node) => node.upsert_msgs(tree, msgs),
-            WriteBody::Internal(ref mut node) => node.upsert_msgs(tree, store, txn, msgs),
+            Body::Leaf(ref mut node) => node.upsert_msgs(tree, msgs),
+            Body::Internal(ref mut node) => node.upsert_msgs(tree, store, txn, msgs),
         };
         self.upsert(body, tree, store)
     }

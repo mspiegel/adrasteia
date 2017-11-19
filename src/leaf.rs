@@ -1,7 +1,7 @@
 use super::buf::Buf;
 use super::message::Message;
 use super::node::NewSibling;
-use super::node::WriteBody;
+use super::node::Body;
 use super::tree::WriteTree;
 
 use std::io::Cursor;
@@ -14,14 +14,14 @@ use byteorder::LittleEndian;
 use byteorder::ReadBytesExt;
 use byteorder::WriteBytesExt;
 
-pub struct WriteLeaf<'a> {
+pub struct Leaf<'a> {
     #[allow(dead_code)]
     pub data: Buf<'a>,
     pub keys: Vec<Buf<'a>>,
     pub vals: Vec<Buf<'a>>,
 }
 
-impl<'a> WriteLeaf<'a> {
+impl<'a> Leaf<'a> {
     pub fn serialize(&self, wtr: &mut Write) -> Result<usize> {
         let size = self.keys.len();
         let mut total = size_of::<u64>() + 2 * size * size_of::<u64>();
@@ -45,7 +45,7 @@ impl<'a> WriteLeaf<'a> {
         Ok(total)
     }
 
-    pub fn deserialize(input: &mut [u8]) -> Result<WriteLeaf> {
+    pub fn deserialize(input: &mut [u8]) -> Result<Leaf> {
         let input_ptr = input.as_mut_ptr();
         let mut rdr = Cursor::new(input);
         let size = rdr.read_u64::<LittleEndian>()? as usize;
@@ -75,7 +75,7 @@ impl<'a> WriteLeaf<'a> {
             offset += len as isize;
         }
 
-        Ok(WriteLeaf {
+        Ok(Leaf {
             data: Buf::Shared(rdr.into_inner()),
             keys: keys,
             vals: vals,
@@ -136,14 +136,14 @@ impl<'a> WriteLeaf<'a> {
         self.vals.truncate(split);
 
         let key = sib_keys[0].bytes().to_vec();
-        let body = WriteLeaf {
+        let body = Leaf {
             data: Buf::Owned(sib_data),
             keys: sib_keys,
             vals: sib_vals,
         };
         NewSibling {
             key: key,
-            body: WriteBody::Leaf(body),
+            body: Body::Leaf(body),
         }
     }
 
@@ -197,13 +197,13 @@ mod tests {
 
     #[test]
     fn get_writeleaf() {
-        let input = WriteLeaf {
+        let input = Leaf {
             data: Buf::Owned(vec![]),
             keys: vec![],
             vals: vec![],
         };
         assert_eq!(input.get(b"hello"), None);
-        let input = WriteLeaf {
+        let input = Leaf {
             data: Buf::Owned(vec![]),
             keys: vec![Buf::Owned(b"hello".to_vec())],
             vals: vec![Buf::Owned(b"world".to_vec())],
@@ -214,7 +214,7 @@ mod tests {
     #[test]
     fn upsert_writeleaf() {
         let mut tree = WriteTree::new(4, 16);
-        let mut input = WriteLeaf {
+        let mut input = Leaf {
             data: Buf::Owned(vec![]),
             keys: vec![],
             vals: vec![],
@@ -245,7 +245,7 @@ mod tests {
     #[test]
     fn roundtrip_empty_writeleaf() {
         let empty: &mut [u8] = &mut [];
-        let input = WriteLeaf {
+        let input = Leaf {
             data: Buf::Shared(empty),
             keys: vec![],
             vals: vec![],
@@ -254,7 +254,7 @@ mod tests {
         let result = input.serialize(&mut wtr);
         assert!(result.is_ok());
         assert_eq!(size_of::<u64>(), wtr.len());
-        let output = WriteLeaf::deserialize(&mut wtr);
+        let output = Leaf::deserialize(&mut wtr);
         assert!(output.is_ok());
         let output = output.unwrap();
         assert_eq!(0, output.keys.len());
@@ -264,7 +264,7 @@ mod tests {
     #[test]
     fn roundtrip_nonempty_writeleaf() {
         let empty: &mut [u8] = &mut [];
-        let input = WriteLeaf {
+        let input = Leaf {
             data: Buf::Shared(empty),
             keys: vec![Buf::Owned(b"hello".to_vec())],
             vals: vec![Buf::Owned(b"world".to_vec())],
@@ -277,7 +277,7 @@ mod tests {
             wtr.len()
         );
         assert_eq!(result.unwrap(), wtr.len());
-        let output = WriteLeaf::deserialize(&mut wtr);
+        let output = Leaf::deserialize(&mut wtr);
         assert!(output.is_ok());
         let output = output.unwrap();
         assert_eq!(b"hello", output.keys[0].bytes());
@@ -287,7 +287,7 @@ mod tests {
     #[test]
     fn split_writeleaf() {
         let mut tree = WriteTree::new(1, 1);
-        let mut input = WriteLeaf {
+        let mut input = Leaf {
             data: Buf::Owned(vec![]),
             keys: vec![],
             vals: vec![],
@@ -310,8 +310,8 @@ mod tests {
             let sibling = input.upsert_msg(&mut tree, msg);
             assert!(sibling.is_some());
             let sibling = match sibling.unwrap().body {
-                WriteBody::Leaf(node) => node,
-                WriteBody::Internal(_) => panic!("expected leaf node"),
+                Body::Leaf(node) => node,
+                Body::Internal(_) => panic!("expected leaf node"),
             };
             assert_eq!(sibling.get(b"foo"), Some(&b"abc"[..]));
             assert_eq!(sibling.get(b"bar"), None);

@@ -1,11 +1,8 @@
 use super::error::ErrorType;
-use super::store::ReadStore;
-use super::store::WriteStore;
+use super::store::Store;
 use super::transaction::Transaction;
 
 use std::io;
-use std::sync::Arc;
-use std::sync::RwLock;
 
 pub struct WriteTree {
     pub epoch: u64,
@@ -15,6 +12,7 @@ pub struct WriteTree {
     pub txn: bool,
 }
 
+/*
 pub struct ReadTree {
     pub rleafs: Arc<RwLock<Vec<u64>>>,
 }
@@ -24,7 +22,7 @@ impl ReadTree {
         ReadTree { rleafs: Arc::new(RwLock::new(vec![])) }
     }
 
-    pub fn scan<F>(&self, store: &ReadStore, scanner: F)
+    pub fn scan<F>(&self, store: &Store, scanner: F)
     where
         F: Fn(&[u8], &[u8]),
     {
@@ -43,6 +41,7 @@ impl ReadTree {
         }
     }
 }
+*/
 
 impl WriteTree {
     pub fn new(max_pivots: usize, max_buffer: usize) -> WriteTree {
@@ -71,14 +70,14 @@ impl WriteTree {
         }
     }
 
-    fn close_txn(&mut self, store: &mut WriteStore, txn: Transaction) -> Option<io::Error> {
+    fn close_txn(&mut self, store: &mut Store, txn: Transaction) -> Option<io::Error> {
         for id in txn.delete {
             store.schedule_delete(id);
         }
         None
     }
 
-    pub fn end_txn(&mut self, store: &mut WriteStore, txn: Transaction) -> Option<ErrorType> {
+    pub fn end_txn(&mut self, store: &mut Store, txn: Transaction) -> Option<ErrorType> {
         if !self.txn {
             return Some(ErrorType::Msg(
                 "transaction has already been closed".to_string(),

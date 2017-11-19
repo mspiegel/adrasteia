@@ -2,9 +2,9 @@ use super::buf::Buf;
 use super::message::BufMessage;
 use super::message::Message;
 use super::node::NewSibling;
-use super::node::WriteBody;
+use super::node::Body;
 use super::operation::Operation;
-use super::store::WriteStore;
+use super::store::Store;
 use super::transaction::Transaction;
 use super::tree::WriteTree;
 
@@ -18,7 +18,7 @@ use byteorder::LittleEndian;
 use byteorder::ReadBytesExt;
 use byteorder::WriteBytesExt;
 
-pub struct WriteInternal<'a> {
+pub struct Internal<'a> {
     #[allow(dead_code)]
     pub data: Buf<'a>,
     pub keys: Vec<Buf<'a>>,
@@ -27,7 +27,7 @@ pub struct WriteInternal<'a> {
     pub serde: bool,
 }
 
-impl<'a> WriteInternal<'a> {
+impl<'a> Internal<'a> {
     pub fn serialize(&self, wtr: &mut Write) -> Result<usize> {
         if self.serde {
             let bytes = self.data.bytes();
@@ -86,7 +86,7 @@ impl<'a> WriteInternal<'a> {
         Ok(total)
     }
 
-    pub fn deserialize(input: &mut [u8]) -> Result<WriteInternal> {
+    pub fn deserialize(input: &mut [u8]) -> Result<Internal> {
         let input_ptr = input.as_mut_ptr();
         let mut rdr = Cursor::new(input);
         let key_size = rdr.read_u64::<LittleEndian>()? as usize;
@@ -142,7 +142,7 @@ impl<'a> WriteInternal<'a> {
             offset += len as isize;
         }
 
-        Ok(WriteInternal {
+        Ok(Internal {
             data: Buf::Shared(rdr.into_inner()),
             keys: keys,
             buffer: buffer,
@@ -310,7 +310,7 @@ impl<'a> WriteInternal<'a> {
         self.keys.truncate(split);
         self.children.truncate(split + 1);
 
-        let body = WriteInternal {
+        let body = Internal {
             data: Buf::Owned(sib_data),
             keys: sib_keys,
             buffer: sib_buffer,
@@ -319,14 +319,14 @@ impl<'a> WriteInternal<'a> {
         };
         NewSibling {
             key: split_key,
-            body: WriteBody::Internal(body),
+            body: Body::Internal(body),
         }
     }
 
     pub fn parent_to_child(
         &mut self,
         tree: &mut WriteTree,
-        store: &mut WriteStore,
+        store: &mut Store,
         txn: &mut Transaction,
     ) -> Option<NewSibling<'a>> {
         self.buffer.sort_by(|a, b| a.key.bytes().cmp(b.key.bytes()));
@@ -340,7 +340,7 @@ impl<'a> WriteInternal<'a> {
             };
             indices.push(pos);
         }
-        let (buff_idx, len, child_idx) = WriteInternal::max_run(&indices);
+        let (buff_idx, len, child_idx) = Internal::max_run(&indices);
         let mut msgs = self.buffer.split_off(buff_idx);
         let mut tail = msgs.split_off(len);
         self.buffer.append(&mut tail);
@@ -357,7 +357,7 @@ impl<'a> WriteInternal<'a> {
             child.header.epoch = tree.epoch;
         }
         let child_id = child.header.id;
-        store.write(*child);
+        store.write(child);
         self.children[child_idx] = child_id;
 
         if let Some(newchild) = newchild {
@@ -375,7 +375,7 @@ impl<'a> WriteInternal<'a> {
     pub fn upsert_msg(
         &mut self,
         tree: &mut WriteTree,
-        store: &mut WriteStore,
+        store: &mut Store,
         txn: &mut Transaction,
         msg: Message,
     ) -> Option<NewSibling<'a>> {
@@ -389,7 +389,7 @@ impl<'a> WriteInternal<'a> {
     pub fn upsert_msgs(
         &mut self,
         tree: &mut WriteTree,
-        store: &mut WriteStore,
+        store: &mut Store,
         txn: &mut Transaction,
         msgs: Vec<Message>,
     ) -> Option<NewSibling<'a>> {
@@ -410,7 +410,7 @@ mod tests {
     #[test]
     fn roundtrip_empty_writeinternal() {
         let empty: &mut [u8] = &mut [];
-        let input = WriteInternal {
+        let input = Internal {
             data: Buf::Shared(empty),
             keys: vec![],
             buffer: vec![],
@@ -421,7 +421,7 @@ mod tests {
         let result = input.serialize(&mut wtr);
         assert!(result.is_ok());
         assert_eq!(3 * size_of::<u64>(), wtr.len());
-        let output = WriteInternal::deserialize(&mut wtr);
+        let output = Internal::deserialize(&mut wtr);
         assert!(output.is_ok());
         let output = output.unwrap();
         assert_eq!(0, output.keys.len());
@@ -432,7 +432,7 @@ mod tests {
     #[test]
     fn roundtrip_nonempty_writeinternal() {
         let empty: &mut [u8] = &mut [];
-        let input = WriteInternal {
+        let input = Internal {
             data: Buf::Shared(empty),
             keys: vec![Buf::Owned(b"hello".to_vec())],
             buffer: vec![
@@ -453,7 +453,7 @@ mod tests {
             wtr.len()
         );
         assert_eq!(result.unwrap(), wtr.len());
-        let output = WriteInternal::deserialize(&mut wtr);
+        let output = Internal::deserialize(&mut wtr);
         assert!(output.is_ok());
         let output = output.unwrap();
         assert_eq!(b"hello", output.keys[0].bytes());
@@ -466,27 +466,27 @@ mod tests {
     #[test]
     fn max_run() {
         let input = vec![1, 2, 3, 4];
-        let (idx, len, val) = WriteInternal::max_run(&input);
+        let (idx, len, val) = Internal::max_run(&input);
         assert_eq!(3, idx);
         assert_eq!(1, len);
         assert_eq!(4, val);
         let input = vec![1, 1, 3, 4];
-        let (idx, len, val) = WriteInternal::max_run(&input);
+        let (idx, len, val) = Internal::max_run(&input);
         assert_eq!(0, idx);
         assert_eq!(2, len);
         assert_eq!(1, val);
         let input = vec![1, 2, 2, 4];
-        let (idx, len, val) = WriteInternal::max_run(&input);
+        let (idx, len, val) = Internal::max_run(&input);
         assert_eq!(1, idx);
         assert_eq!(2, len);
         assert_eq!(2, val);
         let input = vec![1, 2, 3, 3];
-        let (idx, len, val) = WriteInternal::max_run(&input);
+        let (idx, len, val) = Internal::max_run(&input);
         assert_eq!(2, idx);
         assert_eq!(2, len);
         assert_eq!(3, val);
         let input = vec![1, 1, 1, 1];
-        let (idx, len, val) = WriteInternal::max_run(&input);
+        let (idx, len, val) = Internal::max_run(&input);
         assert_eq!(0, idx);
         assert_eq!(4, len);
         assert_eq!(1, val);
@@ -495,7 +495,7 @@ mod tests {
     #[test]
     fn split_writeinternal() {
         let empty: &mut [u8] = &mut [];
-        let mut input = WriteInternal {
+        let mut input = Internal {
             data: Buf::Shared(empty),
             keys: vec![
                 Buf::Owned(b"a".to_vec()),
@@ -544,8 +544,8 @@ mod tests {
         assert_eq!(vec![0, 1, 2], input.children);
 
         let sibling = match sibling.body {
-            WriteBody::Leaf(_) => panic!("expected internal node"),
-            WriteBody::Internal(node) => node,
+            Body::Leaf(_) => panic!("expected internal node"),
+            Body::Internal(node) => node,
         };
         assert_eq!(1, sibling.keys.len());
         assert_eq!(2, sibling.buffer.len());
@@ -560,7 +560,7 @@ mod tests {
         let mut wtr = vec![];
         let result = sibling.serialize(&mut wtr);
         assert!(result.is_ok());
-        let output = WriteInternal::deserialize(&mut wtr);
+        let output = Internal::deserialize(&mut wtr);
         assert!(output.is_ok());
         let output = output.unwrap();
         assert_eq!(1, output.keys.len());
