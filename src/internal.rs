@@ -8,8 +8,8 @@ use super::store::Store;
 use super::transaction::Transaction;
 use super::tree::Tree;
 
+use std::io;
 use std::io::Cursor;
-use std::io::Result;
 use std::io::Write;
 use std::mem::size_of;
 use std::slice::from_raw_parts_mut;
@@ -29,7 +29,7 @@ pub struct Internal<'a> {
 }
 
 impl<'a> Internal<'a> {
-    pub fn serialize(&self, wtr: &mut Write) -> Result<()> {
+    pub fn serialize(&self, wtr: &mut Write) -> io::Result<()> {
         if self.serde {
             wtr.write_all(&self.data)?;
             return Ok(());
@@ -77,7 +77,7 @@ impl<'a> Internal<'a> {
         Ok(())
     }
 
-    pub fn deserialize(mut input: Vec<u8>) -> Result<Internal<'a>> {
+    pub fn deserialize(mut input: Vec<u8>) -> io::Result<Internal<'a>> {
         let input_ptr = input.as_mut_ptr();
         let mut rdr = Cursor::new(input);
         let level = rdr.read_u32::<LittleEndian>()?;
@@ -324,7 +324,7 @@ impl<'a> Internal<'a> {
         tree: &mut Tree,
         store: &mut Store,
         txn: &mut Transaction,
-    ) -> Result<Option<NewSibling<'a>>> {
+    ) -> io::Result<Option<NewSibling<'a>>> {
         self.buffer.sort_by(|a, b| a.key.bytes().cmp(b.key.bytes()));
         let mut indices = Vec::with_capacity(self.buffer.len());
         for msg in &self.buffer {
@@ -374,7 +374,7 @@ impl<'a> Internal<'a> {
         store: &mut Store,
         txn: &mut Transaction,
         msg: Message,
-    ) -> Result<Option<NewSibling<'a>>> {
+    ) -> io::Result<Option<NewSibling<'a>>> {
         self.upsert(msg);
         if self.children.len() < tree.max_buffer {
             return Ok(None);
@@ -388,7 +388,7 @@ impl<'a> Internal<'a> {
         store: &mut Store,
         txn: &mut Transaction,
         msgs: Vec<Message>,
-    ) -> Result<Option<NewSibling<'a>>> {
+    ) -> io::Result<Option<NewSibling<'a>>> {
         for msg in msgs {
             self.upsert(msg);
         }
@@ -404,11 +404,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn roundtrip_empty_writeinternal() {
-        let empty: &mut [u8] = &mut [];
+    fn roundtrip_empty_internal() {
         let input = Internal {
             level: 1,
-            data: Buf::Shared(empty),
+            data: vec![],
             keys: vec![],
             buffer: vec![],
             children: vec![],
@@ -417,8 +416,7 @@ mod tests {
         let mut wtr = vec![];
         let result = input.serialize(&mut wtr);
         assert!(result.is_ok());
-        assert_eq!(size_of::<u32>() + 3 * size_of::<u64>(), wtr.len());
-        let output = Internal::deserialize(&mut wtr);
+        let output = Internal::deserialize(wtr);
         assert!(output.is_ok());
         let output = output.unwrap();
         assert_eq!(0, output.keys.len());
@@ -427,11 +425,10 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip_nonempty_writeinternal() {
-        let empty: &mut [u8] = &mut [];
+    fn roundtrip_nonempty_internal() {
         let input = Internal {
             level: 1,
-            data: Buf::Shared(empty),
+            data: vec![],
             keys: vec![Buf::Owned(b"hello".to_vec())],
             buffer: vec![
                 BufMessage {
@@ -450,8 +447,7 @@ mod tests {
             8 * size_of::<u64>() + 2 * size_of::<u32>() + "hello".len() + "foo".len() + "bar".len(),
             wtr.len()
         );
-        assert_eq!(result.unwrap(), wtr.len());
-        let output = Internal::deserialize(&mut wtr);
+        let output = Internal::deserialize(wtr);
         assert!(output.is_ok());
         let output = output.unwrap();
         assert_eq!(b"hello", output.keys[0].bytes());
@@ -491,11 +487,10 @@ mod tests {
     }
 
     #[test]
-    fn split_writeinternal() {
-        let empty: &mut [u8] = &mut [];
+    fn split_internal() {
         let mut input = Internal {
             level: 1,
-            data: Buf::Shared(empty),
+            data: vec![],
             keys: vec![
                 Buf::Owned(b"a".to_vec()),
                 Buf::Owned(b"b".to_vec()),
@@ -559,7 +554,7 @@ mod tests {
         let mut wtr = vec![];
         let result = sibling.serialize(&mut wtr);
         assert!(result.is_ok());
-        let output = Internal::deserialize(&mut wtr);
+        let output = Internal::deserialize(wtr);
         assert!(output.is_ok());
         let output = output.unwrap();
         assert_eq!(1, output.keys.len());

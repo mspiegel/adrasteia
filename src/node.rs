@@ -5,9 +5,9 @@ use super::store::Store;
 use super::transaction::Transaction;
 use super::tree::Tree;
 
+use std::io;
 use std::io::Cursor;
 use std::io::Read;
-use std::io::Result;
 use std::io::Write;
 
 use byteorder::LittleEndian;
@@ -60,7 +60,7 @@ impl<'a> Node<'a> {
         self.header.id
     }
 
-    pub fn serialize(&self, wtr: &mut Write) -> Result<()> {
+    pub fn serialize(&self, wtr: &mut Write) -> io::Result<()> {
         wtr.write_u64::<LittleEndian>(self.header.id)?;
         wtr.write_u64::<LittleEndian>(self.header.epoch)?;
         match self.body {
@@ -75,7 +75,7 @@ impl<'a> Node<'a> {
         }
     }
 
-    pub fn deserialize(input: Vec<u8>) -> Result<Node<'a>> {
+    pub fn deserialize(input: Vec<u8>) -> io::Result<Node<'a>> {
         let mut rdr = Cursor::new(input);
         let id = rdr.read_u64::<LittleEndian>()?;
         let epoch = rdr.read_u64::<LittleEndian>()?;
@@ -101,7 +101,7 @@ impl<'a> Node<'a> {
         body: Option<NewSibling<'a>>,
         tree: &mut Tree,
         store: &mut Store<'a>,
-    ) -> Result<Option<NewChild>> {
+    ) -> io::Result<Option<NewChild>> {
         if let Some(inner) = body {
             let (key, body) = (inner.key, inner.body);
 
@@ -127,7 +127,7 @@ impl<'a> Node<'a> {
         store: &mut Store<'a>,
         txn: &mut Transaction,
         msg: Message,
-    ) -> Result<Option<NewChild>> {
+    ) -> io::Result<Option<NewChild>> {
         let body = match self.body {
             Body::Leaf(ref mut node) => Ok(node.upsert_msg(tree, msg)),
             Body::Internal(ref mut node) => node.upsert_msg(tree, store, txn, msg),
@@ -141,7 +141,7 @@ impl<'a> Node<'a> {
         store: &mut Store<'a>,
         txn: &mut Transaction,
         msgs: Vec<Message>,
-    ) -> Result<Option<NewChild>> {
+    ) -> io::Result<Option<NewChild>> {
         let body = match self.body {
             Body::Leaf(ref mut node) => Ok(node.upsert_msgs(tree, msgs)),
             Body::Internal(ref mut node) => node.upsert_msgs(tree, store, txn, msgs),

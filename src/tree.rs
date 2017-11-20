@@ -57,27 +57,27 @@ impl Tree {
         }
     }
 
-    fn close_txn(&mut self, store: &mut Store, txn: Transaction) -> Option<io::Error> {
+    fn close_txn(&mut self, store: &mut Store, txn: Transaction) -> io::Result<()> {
         for id in txn.delete {
-            store.schedule_delete(id);
+            store.schedule_delete(id)?;
         }
-        None
+        Ok(())
     }
 
-    pub fn end_txn(&mut self, store: &mut Store, txn: Transaction) -> Option<ErrorType> {
+    pub fn end_txn(&mut self, store: &mut Store, txn: Transaction) -> Result<(),ErrorType> {
         if !self.txn {
-            return Some(ErrorType::Msg(
+            return Err(ErrorType::Msg(
                 "transaction has already been closed".to_string(),
             ));
         }
         if self.epoch != txn.epoch {
-            return Some(ErrorType::Msg(format!(
+            return Err(ErrorType::Msg(format!(
                 "tree epoch {} != transaction epoch {}",
                 self.epoch,
                 txn.epoch
             )));
         }
-        self.close_txn(store, txn).map(ErrorType::IO)
+        self.close_txn(store, txn).map_err(ErrorType::IO)
     }
 
     pub fn next_id(&mut self) -> u64 {

@@ -4,8 +4,8 @@ use super::node::NewSibling;
 use super::node::Body;
 use super::tree::Tree;
 
+use std::io;
 use std::io::Cursor;
-use std::io::Result;
 use std::io::Write;
 use std::mem::size_of;
 use std::slice::from_raw_parts_mut;
@@ -22,7 +22,7 @@ pub struct Leaf<'a> {
 }
 
 impl<'a> Leaf<'a> {
-    pub fn serialize(&self, wtr: &mut Write) -> Result<()> {
+    pub fn serialize(&self, wtr: &mut Write) -> io::Result<()> {
         let size = self.keys.len();
         wtr.write_u64::<LittleEndian>(size as u64)?;
         for key in &self.keys {
@@ -42,7 +42,7 @@ impl<'a> Leaf<'a> {
         Ok(())
     }
 
-    pub fn deserialize(mut input: Vec<u8>) -> Result<Leaf<'a>> {
+    pub fn deserialize(mut input: Vec<u8>) -> io::Result<Leaf<'a>> {
         let input_ptr = input.as_mut_ptr();
         let mut rdr = Cursor::new(input);
         let size = rdr.read_u64::<LittleEndian>()? as usize;
@@ -186,18 +186,19 @@ impl<'a> Leaf<'a> {
 mod tests {
     use super::*;
 
+    use mode::Mode;
     use operation::Operation;
 
     #[test]
-    fn get_writeleaf() {
+    fn get_leaf() {
         let input = Leaf {
-            data: Buf::Owned(vec![]),
+            data: vec![],
             keys: vec![],
             vals: vec![],
         };
         assert_eq!(input.get(b"hello"), None);
         let input = Leaf {
-            data: Buf::Owned(vec![]),
+            data: vec![],
             keys: vec![Buf::Owned(b"hello".to_vec())],
             vals: vec![Buf::Owned(b"world".to_vec())],
         };
@@ -205,10 +206,10 @@ mod tests {
     }
 
     #[test]
-    fn upsert_writeleaf() {
-        let mut tree = Tree::new(4, 16);
+    fn upsert_leaf() {
+        let mut tree = Tree::new(4, 16, Mode::Test);
         let mut input = Leaf {
-            data: Buf::Owned(vec![]),
+            data: vec![],
             keys: vec![],
             vals: vec![],
         };
@@ -236,18 +237,16 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip_empty_writeleaf() {
-        let empty: &mut [u8] = &mut [];
+    fn roundtrip_empty_leaf() {
         let input = Leaf {
-            data: Buf::Shared(empty),
+            data: vec![],
             keys: vec![],
             vals: vec![],
         };
         let mut wtr = vec![];
         let result = input.serialize(&mut wtr);
         assert!(result.is_ok());
-        assert_eq!(size_of::<u64>(), wtr.len());
-        let output = Leaf::deserialize(&mut wtr);
+        let output = Leaf::deserialize(wtr);
         assert!(output.is_ok());
         let output = output.unwrap();
         assert_eq!(0, output.keys.len());
@@ -255,10 +254,9 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip_nonempty_writeleaf() {
-        let empty: &mut [u8] = &mut [];
+    fn roundtrip_nonempty_leaf() {
         let input = Leaf {
-            data: Buf::Shared(empty),
+            data: vec![],
             keys: vec![Buf::Owned(b"hello".to_vec())],
             vals: vec![Buf::Owned(b"world".to_vec())],
         };
@@ -269,8 +267,7 @@ mod tests {
             3 * size_of::<u64>() + "hello".len() + "world".len(),
             wtr.len()
         );
-        assert_eq!(result.unwrap(), wtr.len());
-        let output = Leaf::deserialize(&mut wtr);
+        let output = Leaf::deserialize(wtr);
         assert!(output.is_ok());
         let output = output.unwrap();
         assert_eq!(b"hello", output.keys[0].bytes());
@@ -278,10 +275,10 @@ mod tests {
     }
 
     #[test]
-    fn split_writeleaf() {
-        let mut tree = Tree::new(1, 1);
+    fn split_leaf() {
+        let mut tree = Tree::new(1, 1, Mode::Test);
         let mut input = Leaf {
-            data: Buf::Owned(vec![]),
+            data: vec![],
             keys: vec![],
             vals: vec![],
         };
