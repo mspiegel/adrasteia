@@ -2,7 +2,7 @@ use super::buf::Buf;
 use super::message::Message;
 use super::node::NewSibling;
 use super::node::Body;
-use super::tree::WriteTree;
+use super::tree::Tree;
 
 use std::io::Cursor;
 use std::io::Result;
@@ -16,24 +16,21 @@ use byteorder::WriteBytesExt;
 
 pub struct Leaf<'a> {
     #[allow(dead_code)]
-    pub data: Buf<'a>,
+    pub data: Vec<u8>,
     pub keys: Vec<Buf<'a>>,
     pub vals: Vec<Buf<'a>>,
 }
 
 impl<'a> Leaf<'a> {
-    pub fn serialize(&self, wtr: &mut Write) -> Result<usize> {
+    pub fn serialize(&self, wtr: &mut Write) -> Result<()> {
         let size = self.keys.len();
-        let mut total = size_of::<u64>() + 2 * size * size_of::<u64>();
         wtr.write_u64::<LittleEndian>(size as u64)?;
         for key in &self.keys {
             let len = key.bytes().len();
-            total += len;
             wtr.write_u64::<LittleEndian>(len as u64)?;
         }
         for val in &self.vals {
             let len = val.bytes().len();
-            total += len;
             wtr.write_u64::<LittleEndian>(len as u64)?;
         }
         for key in &self.keys {
@@ -42,10 +39,10 @@ impl<'a> Leaf<'a> {
         for val in &self.vals {
             wtr.write_all(val.bytes())?;
         }
-        Ok(total)
+        Ok(())
     }
 
-    pub fn deserialize(input: &mut [u8]) -> Result<Leaf> {
+    pub fn deserialize(mut input: Vec<u8>) -> Result<Leaf<'a>> {
         let input_ptr = input.as_mut_ptr();
         let mut rdr = Cursor::new(input);
         let size = rdr.read_u64::<LittleEndian>()? as usize;
@@ -76,7 +73,7 @@ impl<'a> Leaf<'a> {
         }
 
         Ok(Leaf {
-            data: Buf::Shared(rdr.into_inner()),
+            data: rdr.into_inner(),
             keys: keys,
             vals: vals,
         })
@@ -137,7 +134,7 @@ impl<'a> Leaf<'a> {
 
         let key = sib_keys[0].bytes().to_vec();
         let body = Leaf {
-            data: Buf::Owned(sib_data),
+            data: sib_data,
             keys: sib_keys,
             vals: sib_vals,
         };
@@ -164,7 +161,7 @@ impl<'a> Leaf<'a> {
         };
     }
 
-    pub fn upsert_msg(&mut self, tree: &mut WriteTree, msg: Message) -> Option<NewSibling<'a>> {
+    pub fn upsert_msg(&mut self, tree: &mut Tree, msg: Message) -> Option<NewSibling<'a>> {
         self.upsert(msg);
         if self.keys.len() < (tree.max_pivots + tree.max_buffer) {
             None
@@ -173,11 +170,7 @@ impl<'a> Leaf<'a> {
         }
     }
 
-    pub fn upsert_msgs(
-        &mut self,
-        tree: &mut WriteTree,
-        msgs: Vec<Message>,
-    ) -> Option<NewSibling<'a>> {
+    pub fn upsert_msgs(&mut self, tree: &mut Tree, msgs: Vec<Message>) -> Option<NewSibling<'a>> {
         for msg in msgs {
             self.upsert(msg);
         }
@@ -213,7 +206,7 @@ mod tests {
 
     #[test]
     fn upsert_writeleaf() {
-        let mut tree = WriteTree::new(4, 16);
+        let mut tree = Tree::new(4, 16);
         let mut input = Leaf {
             data: Buf::Owned(vec![]),
             keys: vec![],
@@ -286,7 +279,7 @@ mod tests {
 
     #[test]
     fn split_writeleaf() {
-        let mut tree = WriteTree::new(1, 1);
+        let mut tree = Tree::new(1, 1);
         let mut input = Leaf {
             data: Buf::Owned(vec![]),
             keys: vec![],

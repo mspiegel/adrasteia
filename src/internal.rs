@@ -6,7 +6,7 @@ use super::node::Body;
 use super::operation::Operation;
 use super::store::Store;
 use super::transaction::Transaction;
-use super::tree::WriteTree;
+use super::tree::Tree;
 
 use std::io::Cursor;
 use std::io::Result;
@@ -21,7 +21,7 @@ use byteorder::WriteBytesExt;
 pub struct Internal<'a> {
     pub level: u32,
     #[allow(dead_code)]
-    pub data: Buf<'a>,
+    pub data: Vec<u8>,
     pub keys: Vec<Buf<'a>>,
     pub buffer: Vec<BufMessage<'a>>,
     pub children: Vec<u64>,
@@ -29,13 +29,11 @@ pub struct Internal<'a> {
 }
 
 impl<'a> Internal<'a> {
-    pub fn serialize(&self, wtr: &mut Write) -> Result<usize> {
+    pub fn serialize(&self, wtr: &mut Write) -> Result<()> {
         if self.serde {
-            let bytes = self.data.bytes();
-            wtr.write_all(bytes)?;
-            return Ok(bytes.len());
+            wtr.write_all(&self.data)?;
+            return Ok(());
         }
-        let mut total = 0;
         let key_size = self.keys.len();
         let buf_size = self.buffer.len();
         let child_size = self.children.len();
@@ -43,38 +41,29 @@ impl<'a> Internal<'a> {
         wtr.write_u64::<LittleEndian>(key_size as u64)?;
         wtr.write_u64::<LittleEndian>(buf_size as u64)?;
         wtr.write_u64::<LittleEndian>(child_size as u64)?;
-        total += 3 * size_of::<u64>() + size_of::<u32>();
 
         for key in &self.keys {
             let len = key.bytes().len();
             wtr.write_u64::<LittleEndian>(len as u64)?;
-            total += len;
         }
-        total += self.keys.len() * size_of::<u64>();
 
         for child in &self.children {
             wtr.write_u64::<LittleEndian>(*child)?;
         }
-        total += self.children.len() * size_of::<u64>();
 
         for msg in &self.buffer {
             wtr.write_u32::<LittleEndian>(msg.op.serialize())?;
         }
-        total += self.buffer.len() * size_of::<u32>();
 
         for msg in &self.buffer {
             let len = msg.key.bytes().len();
             wtr.write_u64::<LittleEndian>(len as u64)?;
-            total += len;
         }
-        total += self.buffer.len() * size_of::<u64>();
 
         for msg in &self.buffer {
             let len = msg.data.bytes().len();
             wtr.write_u64::<LittleEndian>(len as u64)?;
-            total += len;
         }
-        total += self.buffer.len() * size_of::<u64>();
 
         for key in &self.keys {
             wtr.write_all(key.bytes())?;
@@ -85,10 +74,10 @@ impl<'a> Internal<'a> {
         for msg in &self.buffer {
             wtr.write_all(msg.data.bytes())?;
         }
-        Ok(total)
+        Ok(())
     }
 
-    pub fn deserialize(input: &mut [u8]) -> Result<Internal> {
+    pub fn deserialize(mut input: Vec<u8>) -> Result<Internal<'a>> {
         let input_ptr = input.as_mut_ptr();
         let mut rdr = Cursor::new(input);
         let level = rdr.read_u32::<LittleEndian>()?;
@@ -147,7 +136,7 @@ impl<'a> Internal<'a> {
 
         Ok(Internal {
             level: level,
-            data: Buf::Shared(rdr.into_inner()),
+            data: rdr.into_inner(),
             keys: keys,
             buffer: buffer,
             children: children,
@@ -318,7 +307,7 @@ impl<'a> Internal<'a> {
 
         let body = Internal {
             level: self.level,
-            data: Buf::Owned(sib_data),
+            data: sib_data,
             keys: sib_keys,
             buffer: sib_buffer,
             children: sib_children,
@@ -332,10 +321,10 @@ impl<'a> Internal<'a> {
 
     pub fn parent_to_child(
         &mut self,
-        tree: &mut WriteTree,
+        tree: &mut Tree,
         store: &mut Store,
         txn: &mut Transaction,
-    ) -> Option<NewSibling<'a>> {
+    ) -> Result<Option<NewSibling<'a>>> {
         self.buffer.sort_by(|a, b| a.key.bytes().cmp(b.key.bytes()));
         let mut indices = Vec::with_capacity(self.buffer.len());
         for msg in &self.buffer {
@@ -357,14 +346,14 @@ impl<'a> Internal<'a> {
         }
         let child_id = self.children[child_idx];
         let mut child = store.read(child_id).unwrap();
-        let newchild = child.upsert_msgs(tree, store, txn, owned_msgs);
+        let newchild = child.upsert_msgs(tree, store, txn, owned_msgs)?;
         if child.header.epoch != tree.epoch {
             txn.delete.push(child.header.id);
             child.header.id = tree.next_id();
             child.header.epoch = tree.epoch;
         }
         let child_id = child.header.id;
-        store.write(child);
+        store.write(&child)?;
         self.children[child_idx] = child_id;
 
         if let Some(newchild) = newchild {
@@ -373,38 +362,38 @@ impl<'a> Internal<'a> {
         }
 
         if self.keys.len() < tree.max_pivots {
-            None
+            Ok(None)
         } else {
-            Some(self.split())
+            Ok(Some(self.split()))
         }
     }
 
     pub fn upsert_msg(
         &mut self,
-        tree: &mut WriteTree,
+        tree: &mut Tree,
         store: &mut Store,
         txn: &mut Transaction,
         msg: Message,
-    ) -> Option<NewSibling<'a>> {
+    ) -> Result<Option<NewSibling<'a>>> {
         self.upsert(msg);
         if self.children.len() < tree.max_buffer {
-            return None;
+            return Ok(None);
         }
         self.parent_to_child(tree, store, txn)
     }
 
     pub fn upsert_msgs(
         &mut self,
-        tree: &mut WriteTree,
+        tree: &mut Tree,
         store: &mut Store,
         txn: &mut Transaction,
         msgs: Vec<Message>,
-    ) -> Option<NewSibling<'a>> {
+    ) -> Result<Option<NewSibling<'a>>> {
         for msg in msgs {
             self.upsert(msg);
         }
         if self.children.len() < tree.max_buffer {
-            return None;
+            return Ok(None);
         }
         self.parent_to_child(tree, store, txn)
     }

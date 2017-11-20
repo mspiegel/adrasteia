@@ -1,56 +1,43 @@
 use super::error::ErrorType;
+use super::mode::Mode;
 use super::store::Store;
 use super::transaction::Transaction;
 
 use std::io;
 
-pub struct WriteTree {
+pub struct Tree {
     pub epoch: u64,
     pub id: u64,
     pub max_pivots: usize,
     pub max_buffer: usize,
+    pub leafs: Vec<u64>,
+    pub mode: Mode,
     pub txn: bool,
 }
 
-/*
-pub struct ReadTree {
-    pub rleafs: Arc<RwLock<Vec<u64>>>,
-}
-
-impl ReadTree {
-    pub fn new() -> ReadTree {
-        ReadTree { rleafs: Arc::new(RwLock::new(vec![])) }
+impl Tree {
+    pub fn new(max_pivots: usize, max_buffer: usize, mode: Mode) -> Tree {
+        Tree {
+            epoch: 0,
+            id: 0,
+            max_pivots: max_pivots,
+            max_buffer: max_buffer,
+            leafs: vec![],
+            mode: mode,
+            txn: false,
+        }
     }
 
     pub fn scan<F>(&self, store: &Store, scanner: F)
     where
         F: Fn(&[u8], &[u8]),
     {
-        let leafs = {
-            self.rleafs.read().unwrap().clone()
-        };
-        for id in leafs {
-            let node = store.read(id);
-            let leaf = match node {
-                Some(ref node) => node.body.leaf(),
-                None => panic!("unable to find leaf node {}", id),
-            };
+        for id in &self.leafs {
+            let node = store.read(*id).unwrap();
+            let leaf = node.body.leaf();
             for i in 0..leaf.keys.len() {
-                scanner(leaf.keys[i], leaf.vals[i]);
+                scanner(leaf.keys[i].bytes(), leaf.vals[i].bytes());
             }
-        }
-    }
-}
-*/
-
-impl WriteTree {
-    pub fn new(max_pivots: usize, max_buffer: usize) -> WriteTree {
-        WriteTree {
-            epoch: 0,
-            id: 0,
-            max_pivots: max_pivots,
-            max_buffer: max_buffer,
-            txn: false,
         }
     }
 
@@ -63,7 +50,7 @@ impl WriteTree {
         } else {
             self.epoch += 1;
             self.txn = true;
-            Result::Ok(Transaction {
+            Ok(Transaction {
                 epoch: self.epoch,
                 delete: vec![],
             })
