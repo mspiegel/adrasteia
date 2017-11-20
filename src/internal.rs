@@ -19,6 +19,7 @@ use byteorder::ReadBytesExt;
 use byteorder::WriteBytesExt;
 
 pub struct Internal<'a> {
+    pub level: u32,
     #[allow(dead_code)]
     pub data: Buf<'a>,
     pub keys: Vec<Buf<'a>>,
@@ -38,10 +39,11 @@ impl<'a> Internal<'a> {
         let key_size = self.keys.len();
         let buf_size = self.buffer.len();
         let child_size = self.children.len();
+        wtr.write_u32::<LittleEndian>(self.level)?;
         wtr.write_u64::<LittleEndian>(key_size as u64)?;
         wtr.write_u64::<LittleEndian>(buf_size as u64)?;
         wtr.write_u64::<LittleEndian>(child_size as u64)?;
-        total += 3 * size_of::<u64>();
+        total += 3 * size_of::<u64>() + size_of::<u32>();
 
         for key in &self.keys {
             let len = key.bytes().len();
@@ -89,6 +91,7 @@ impl<'a> Internal<'a> {
     pub fn deserialize(input: &mut [u8]) -> Result<Internal> {
         let input_ptr = input.as_mut_ptr();
         let mut rdr = Cursor::new(input);
+        let level = rdr.read_u32::<LittleEndian>()?;
         let key_size = rdr.read_u64::<LittleEndian>()? as usize;
         let buf_size = rdr.read_u64::<LittleEndian>()? as usize;
         let child_size = rdr.read_u64::<LittleEndian>()? as usize;
@@ -97,7 +100,7 @@ impl<'a> Internal<'a> {
         let mut buffer = Vec::with_capacity(buf_size);
         let mut children = Vec::with_capacity(child_size);
 
-        let mut offset = (3 * size_of::<u64>()) as isize;
+        let mut offset = (size_of::<u32>() + 3 * size_of::<u64>()) as isize;
         offset += (key_size * size_of::<u64>()) as isize;
         offset += (child_size * size_of::<u64>()) as isize;
         offset += (2 * buf_size * size_of::<u64>()) as isize;
@@ -143,6 +146,7 @@ impl<'a> Internal<'a> {
         }
 
         Ok(Internal {
+            level: level,
             data: Buf::Shared(rdr.into_inner()),
             keys: keys,
             buffer: buffer,
@@ -184,7 +188,8 @@ impl<'a> Internal<'a> {
             }
         }
 
-        let mut total = 3 * size_of::<u64>();
+        let mut total = size_of::<u32>();
+        total += 3 * size_of::<u64>();
         total += (key_size - split - 1) * size_of::<u64>();
         total += (key_size - split) * size_of::<u64>();
         total += right_msgs.len() * size_of::<u32>();
@@ -205,6 +210,7 @@ impl<'a> Internal<'a> {
         let mut sib_data = Vec::with_capacity(total);
         let sib_ptr = sib_data.as_mut_ptr();
 
+        sib_data.write_u32::<LittleEndian>(self.level).unwrap();
         sib_data
             .write_u64::<LittleEndian>((key_size - split - 1) as u64)
             .unwrap();
@@ -263,7 +269,7 @@ impl<'a> Internal<'a> {
             sib_children.push(self.children[i]);
         }
 
-        let mut offset = (3 * size_of::<u64>()) as isize;
+        let mut offset = (size_of::<u32>() + 3 * size_of::<u64>()) as isize;
         offset += ((key_size - split - 1) * size_of::<u64>()) as isize;
         offset += ((key_size - split) * size_of::<u64>()) as isize;
         offset += (2 * right_msgs.len() * size_of::<u64>()) as isize;
@@ -311,6 +317,7 @@ impl<'a> Internal<'a> {
         self.children.truncate(split + 1);
 
         let body = Internal {
+            level: self.level,
             data: Buf::Owned(sib_data),
             keys: sib_keys,
             buffer: sib_buffer,
@@ -411,6 +418,7 @@ mod tests {
     fn roundtrip_empty_writeinternal() {
         let empty: &mut [u8] = &mut [];
         let input = Internal {
+            level: 1,
             data: Buf::Shared(empty),
             keys: vec![],
             buffer: vec![],
@@ -420,7 +428,7 @@ mod tests {
         let mut wtr = vec![];
         let result = input.serialize(&mut wtr);
         assert!(result.is_ok());
-        assert_eq!(3 * size_of::<u64>(), wtr.len());
+        assert_eq!(size_of::<u32>() + 3 * size_of::<u64>(), wtr.len());
         let output = Internal::deserialize(&mut wtr);
         assert!(output.is_ok());
         let output = output.unwrap();
@@ -433,6 +441,7 @@ mod tests {
     fn roundtrip_nonempty_writeinternal() {
         let empty: &mut [u8] = &mut [];
         let input = Internal {
+            level: 1,
             data: Buf::Shared(empty),
             keys: vec![Buf::Owned(b"hello".to_vec())],
             buffer: vec![
@@ -449,7 +458,7 @@ mod tests {
         let result = input.serialize(&mut wtr);
         assert!(result.is_ok());
         assert_eq!(
-            8 * size_of::<u64>() + size_of::<u32>() + "hello".len() + "foo".len() + "bar".len(),
+            8 * size_of::<u64>() + 2 * size_of::<u32>() + "hello".len() + "foo".len() + "bar".len(),
             wtr.len()
         );
         assert_eq!(result.unwrap(), wtr.len());
@@ -496,6 +505,7 @@ mod tests {
     fn split_writeinternal() {
         let empty: &mut [u8] = &mut [];
         let mut input = Internal {
+            level: 1,
             data: Buf::Shared(empty),
             keys: vec![
                 Buf::Owned(b"a".to_vec()),
