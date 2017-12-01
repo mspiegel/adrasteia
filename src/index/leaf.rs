@@ -186,8 +186,8 @@ impl<'a> Leaf<'a> {
 mod tests {
     use super::*;
 
-    use mode::Mode;
-    use operation::Operation;
+    use index::mode::Mode;
+    use index::operation::Operation;
 
     #[test]
     fn get_leaf() {
